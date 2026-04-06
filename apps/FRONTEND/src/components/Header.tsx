@@ -28,7 +28,7 @@ const Header: React.FC = () => {
       <div className="flex items-center gap-4">
         {user && (
           <span className="text-sm hidden sm:inline">
-            {user.name} ({user.rank})
+            {user.rank === 'COMMISSIONER' ? 'CP' : `${user.name} (${user.rank})`}
           </span>
         )}
         <button onClick={handleLogout} className="p-2 hover:bg-primary-600 rounded" title="Logout">
