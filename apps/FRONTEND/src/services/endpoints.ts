@@ -23,6 +23,63 @@ export const updateOfficer = (id: string, data: Record<string, unknown>) =>
 export const deleteOfficer = (id: string) =>
   api.delete(`/officers/${id}`);
 
+export const reassignOfficerSector = (id: string, sectorId: string) =>
+  api.put(`/officers/${id}/reassign-sector`, { sectorId, role: 'PRIMARY_SI' });
+
+// Violations
+export const getViolations = (params?: Record<string, unknown>) =>
+  api.get('/violations', { params });
+
+export const exemptViolation = (id: string, reason: string) =>
+  api.post(`/violations/${id}/exempt`, { reason });
+
+export const updateViolation = (id: string, data: Record<string, unknown>) =>
+  api.put(`/violations/${id}`, data);
+
+export const deleteViolation = (id: string) =>
+  api.delete(`/violations/${id}`);
+
+// Cases
+export const getCases = (params?: Record<string, unknown>) =>
+  api.get('/cases', { params });
+
+export const createCase = (data: Record<string, unknown>) =>
+  api.post('/cases', data);
+
+export const updateCase = (id: string, data: Record<string, unknown>) =>
+  api.put(`/cases/${id}`, data);
+
+export const deleteCase = (id: string) =>
+  api.delete(`/cases/${id}`);
+
+export const getCaseStats = (type: string) => api.get(`/cases/stats/${type}`);
+
+// Actions
+export const getActions = (params?: Record<string, unknown>) =>
+  api.get('/actions', { params });
+
+export const createAction = (data: Record<string, unknown>) =>
+  api.post('/actions', data);
+
+export const updateAction = (id: string, data: Record<string, unknown>) =>
+  api.put(`/actions/${id}`, data);
+
+export const deleteAction = (id: string) =>
+  api.delete(`/actions/${id}`);
+
+// Appeals
+export const getAppeals = (params?: Record<string, unknown>) =>
+  api.get('/appeals', { params });
+
+export const submitAppeal = (data: Record<string, unknown>) =>
+  api.post('/appeals', data);
+
+export const updateAppeal = (id: string, data: Record<string, unknown>) =>
+  api.put(`/appeals/${id}`, data);
+
+export const deleteAppeal = (id: string) =>
+  api.delete(`/appeals/${id}`);
+
 // DSR
 export const getDSRs = (params?: Record<string, unknown>) =>
   api.get('/dsr', { params });
@@ -32,35 +89,11 @@ export const uploadDSR = (formData: FormData) =>
 
 export const getDSRStats = () => api.get('/dsr/stats');
 
-// Cases
-export const getCases = (params?: Record<string, unknown>) =>
-  api.get('/cases', { params });
+export const updateDSR = (id: string, data: Record<string, unknown>) =>
+  api.put(`/dsr/${id}`, data);
 
-export const createCase = (data: Record<string, unknown>) =>
-  api.post('/cases', data);
-
-export const getCaseStats = (type: string) => api.get(`/cases/stats/${type}`);
-
-// Violations
-export const getViolations = (params?: Record<string, unknown>) =>
-  api.get('/violations', { params });
-
-export const exemptViolation = (id: string, reason: string) =>
-  api.post(`/violations/${id}/exempt`, { reason });
-
-// Actions
-export const getActions = (params?: Record<string, unknown>) =>
-  api.get('/actions', { params });
-
-export const createAction = (data: Record<string, unknown>) =>
-  api.post('/actions', data);
-
-// Appeals
-export const getAppeals = (params?: Record<string, unknown>) =>
-  api.get('/appeals', { params });
-
-export const submitAppeal = (data: Record<string, unknown>) =>
-  api.post('/appeals', data);
+export const deleteDSR = (id: string) =>
+  api.delete(`/dsr/${id}`);
 
 // Zones
 export const getZones = () => api.get('/zones');

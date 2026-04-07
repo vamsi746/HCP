@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getCases, createCase, getPoliceStations } from '../services/endpoints';
-import { Plus, AlertTriangle, X } from 'lucide-react';
+import { getCases, createCase, updateCase, deleteCase, getPoliceStations } from '../services/endpoints';
+import { Plus, AlertTriangle, X, Pencil, Trash2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import type { Case } from '../types';
 
 const CRIME_TYPES = [
@@ -62,6 +63,45 @@ const Cases: React.FC = () => {
     },
   });
 
+  // Edit / Delete state
+  const [editItem, setEditItem] = useState<Case | null>(null);
+  const [deleteItem, setDeleteItem] = useState<Case | null>(null);
+  const [editForm, setEditForm] = useState({ crimeType: '', handledBy: '', policeStationId: '', description: '', location: '', firNumber: '', taskForceUnit: '', isMissedBySI: '' });
+
+  const openEdit = (c: Case) => {
+    setEditForm({
+      crimeType: c.crimeType,
+      handledBy: c.handledBy,
+      policeStationId: typeof c.policeStationId === 'object' ? c.policeStationId?._id || '' : c.policeStationId || '',
+      description: c.description || '',
+      location: c.location || '',
+      firNumber: c.firNumber || '',
+      taskForceUnit: c.taskForceUnit || '',
+      isMissedBySI: c.isMissedBySI ? 'true' : 'false',
+    });
+    setEditItem(c);
+  };
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => updateCase(id, data),
+    onSuccess: () => {
+      toast.success('Case updated');
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      setEditItem(null);
+    },
+    onError: () => toast.error('Failed to update case'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteCase(id),
+    onSuccess: () => {
+      toast.success('Case deleted');
+      queryClient.invalidateQueries({ queryKey: ['cases'] });
+      setDeleteItem(null);
+    },
+    onError: () => toast.error('Failed to delete case'),
+  });
+
   const handleSubmit = () => {
     if (!form.policeStationId) return alert('Select a police station');
     addMutation.mutate(form);
@@ -120,13 +160,14 @@ const Cases: React.FC = () => {
               <th className="px-4 py-3 font-semibold">Handled By</th>
               <th className="px-4 py-3 font-semibold">Location</th>
               <th className="px-4 py-3 font-semibold">Missed by SI</th>
+              <th className="px-4 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">Loading…</td></tr>
             ) : cases.length === 0 ? (
-              <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">No cases found.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No cases found.</td></tr>
             ) : (
               cases.map((c) => (
                 <tr key={c._id} className="border-t hover:bg-gray-50">
@@ -160,6 +201,12 @@ const Cases: React.FC = () => {
                     ) : (
                       <span className="text-green-600">No</span>
                     )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openEdit(c)} className="text-gray-500 hover:text-blue-600" title="Edit"><Pencil size={14} /></button>
+                      <button onClick={() => setDeleteItem(c)} className="text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>
+                    </div>
                   </td>
                 </tr>
               ))
@@ -289,6 +336,93 @@ const Cases: React.FC = () => {
                 className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
               >
                 {addMutation.isPending ? 'Submitting…' : 'Log Incident & Trigger Warnings'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Case Modal */}
+      {editItem && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800">Edit Case</h2>
+              <button onClick={() => setEditItem(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Crime Type</label>
+                <select value={editForm.crimeType} onChange={(e) => setEditForm({ ...editForm, crimeType: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  {CRIME_TYPES.map((ct) => <option key={ct} value={ct}>{ct.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Police Station</label>
+                <select value={editForm.policeStationId} onChange={(e) => setEditForm({ ...editForm, policeStationId: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select Police Station…</option>
+                  {stationsRes?.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Handled By</label>
+                <select value={editForm.handledBy} onChange={(e) => setEditForm({ ...editForm, handledBy: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  {HANDLER_TYPES.map((ht) => <option key={ht} value={ht}>{ht.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">FIR Number</label>
+                  <input type="text" value={editForm.firNumber} onChange={(e) => setEditForm({ ...editForm, firNumber: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                  <input type="text" value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Task Force Unit</label>
+                  <input type="text" value={editForm.taskForceUnit} onChange={(e) => setEditForm({ ...editForm, taskForceUnit: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Missed by SI</label>
+                  <select value={editForm.isMissedBySI} onChange={(e) => setEditForm({ ...editForm, isMissedBySI: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-20 resize-none" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setEditItem(null)} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+              <button onClick={() => editMutation.mutate({ id: editItem._id, data: { ...editForm, isMissedBySI: editForm.isMissedBySI === 'true' } })} disabled={editMutation.isPending} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                {editMutation.isPending ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation */}
+      {deleteItem && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center">
+            <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+              <Trash2 className="text-red-600" size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Delete Case?</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              This will permanently delete case {deleteItem.firNumber || deleteItem._id}. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteItem(null)} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+              <button onClick={() => deleteMutation.mutate(deleteItem._id)} disabled={deleteMutation.isPending} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

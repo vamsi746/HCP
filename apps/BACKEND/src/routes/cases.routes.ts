@@ -106,4 +106,26 @@ router.post('/', authenticate, requireMinRank(OfficerRank.SI), async (req: Reque
   }
 });
 
+// PUT /api/cases/:id
+router.put('/:id', authenticate, requireMinRank(OfficerRank.SI), async (req: Request, res: Response) => {
+  try {
+    const c = await Case.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate('policeStationId', 'name code');
+    if (!c) { res.status(404).json({ error: 'Case not found' }); return; }
+    res.json({ data: c });
+  } catch {
+    res.status(500).json({ error: 'Failed to update case' });
+  }
+});
+
+// DELETE /api/cases/:id
+router.delete('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const c = await Case.findByIdAndDelete(req.params.id);
+    if (!c) { res.status(404).json({ error: 'Case not found' }); return; }
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete case' });
+  }
+});
+
 export default router;

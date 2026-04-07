@@ -60,4 +60,27 @@ router.patch('/:id/review', authenticate, requireMinRank(OfficerRank.CI), async 
   }
 });
 
+// PUT /api/appeals/:id
+router.put('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const appeal = await Appeal.findByIdAndUpdate(req.params.id, req.body, { new: true })
+      .populate('officerId', 'name badgeNumber rank');
+    if (!appeal) { res.status(404).json({ error: 'Appeal not found' }); return; }
+    res.json({ data: appeal });
+  } catch {
+    res.status(500).json({ error: 'Failed to update appeal' });
+  }
+});
+
+// DELETE /api/appeals/:id
+router.delete('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const appeal = await Appeal.findByIdAndDelete(req.params.id);
+    if (!appeal) { res.status(404).json({ error: 'Appeal not found' }); return; }
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete appeal' });
+  }
+});
+
 export default router;

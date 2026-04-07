@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMappingHierarchy, createOfficer, updateOfficer, deleteOfficer } from '../services/endpoints';
+import { getMappingHierarchy, createOfficer, updateOfficer, deleteOfficer, reassignOfficerSector } from '../services/endpoints';
 import api from '../services/api';
 import { X, MapPin, Users, Building2, Search, Download, GripHorizontal, Plus, Pencil, Trash2, Save, Ban } from 'lucide-react';
 import type { MappingZone } from '../types';
@@ -9,6 +9,8 @@ interface FlatOfficer {
   _id: string;
   sectorId: string;
   stationName: string;
+  shoName: string;
+  sectorName: string;
   name: string;
   badgeNumber: string;
   recruitmentType: string;
@@ -25,13 +27,14 @@ interface EditForm {
   phone: string;
   batch: string;
   remarks: string;
+  sectorId: string;
 }
 
 const RANKS = ['CONSTABLE', 'HEAD_CONSTABLE', 'ASI', 'PSI', 'SI', 'WSI', 'CI', 'ACP', 'DCP', 'ADDL_CP', 'COMMISSIONER'];
 
 const ZONE_COLORS: Record<string, { bg: string; border: string; text: string; light: string }> = {
   CZ:   { bg: 'bg-red-600',    border: 'border-red-200',    text: 'text-red-700',    light: 'bg-red-50' },
-  FZ:   { bg: 'bg-amber-600',  border: 'border-amber-200',  text: 'text-amber-700',  light: 'bg-amber-50' },
+  GKZ:  { bg: 'bg-amber-600',  border: 'border-amber-200',  text: 'text-amber-700',  light: 'bg-amber-50' },
   JHZ:  { bg: 'bg-emerald-600',border: 'border-emerald-200',text: 'text-emerald-700', light: 'bg-emerald-50' },
   KZ:   { bg: 'bg-blue-600',   border: 'border-blue-200',   text: 'text-blue-700',   light: 'bg-blue-50' },
   RJNR: { bg: 'bg-purple-600', border: 'border-purple-200', text: 'text-purple-700',  light: 'bg-purple-50' },
@@ -39,7 +42,7 @@ const ZONE_COLORS: Record<string, { bg: string; border: string; text: string; li
   SMZ:  { bg: 'bg-orange-600', border: 'border-orange-200', text: 'text-orange-700',  light: 'bg-orange-50' },
 };
 
-const emptyForm: EditForm = { name: '', recruitmentType: 'DIRECT', rank: 'SI', phone: '', batch: '', remarks: '' };
+const emptyForm: EditForm = { name: '', recruitmentType: 'DIRECT', rank: 'SI', phone: '', batch: '', remarks: '', sectorId: '' };
 
 const Mapping: React.FC = () => {
   const queryClient = useQueryClient();
@@ -124,6 +127,17 @@ const Mapping: React.FC = () => {
     selectedZone.divisions.forEach((div) => {
       div.circles.forEach((circle) => {
         circle.stations.forEach((station) => {
+          // Find SHO: officer whose remarks include 'admin'
+          let shoName = '—';
+          station.sectors.forEach((sector) => {
+            sector.officers?.forEach((off) => {
+              const role = (off.remarks || off.role || '').toLowerCase();
+              if (role.includes('admin') && shoName === '—') {
+                shoName = off.name;
+              }
+            });
+          });
+
           station.sectors.forEach((sector) => {
             if (sector.officers && sector.officers.length > 0) {
               sector.officers.forEach((off) => {
@@ -131,6 +145,8 @@ const Mapping: React.FC = () => {
                   _id: off._id,
                   sectorId: sector._id,
                   stationName: station.name,
+                  shoName,
+                  sectorName: sector.name,
                   name: off.name,
                   badgeNumber: off.badgeNumber,
                   recruitmentType: off.recruitmentType || 'DIRECT',
@@ -179,13 +195,13 @@ const Mapping: React.FC = () => {
   // Download CSV
   const downloadCSV = useCallback(() => {
     if (!selectedZone || filteredOfficers.length === 0) return;
-    const headers = ['S.No', 'Police Station', 'Name Of The Officer', 'Direct/Ranker', 'Rank', 'Phone No', 'Batch', 'Remarks'];
+    const headers = ['S.No', 'Police Station', 'SHO Name', 'Sector', 'Officer Name', 'Rank', 'Phone Number', 'Batch'];
     const csvRows = [headers.join(',')];
     filteredOfficers.forEach((off, i) => {
       csvRows.push([
-        i + 1, `"${off.stationName}"`, `"${off.name}"`,
-        off.recruitmentType === 'RANKER' ? 'Ranker' : 'Direct',
-        off.rank, off.phone, off.batch, `"${off.remarks}"`,
+        i + 1, `"${off.stationName}"`, `"${off.shoName}"`,
+        `"${off.sectorName}"`, `"${off.name}"`,
+        off.rank, off.phone, off.batch,
       ].join(','));
     });
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
@@ -207,12 +223,23 @@ const Mapping: React.FC = () => {
       phone: off.phone,
       batch: String(off.batch),
       remarks: off.remarks,
+      sectorId: off.sectorId,
     });
   };
+
+  const reassignMut = useMutation({
+    mutationFn: ({ id, sectorId }: { id: string; sectorId: string }) => reassignOfficerSector(id, sectorId),
+    onSuccess: () => refetch(),
+  });
 
   const saveEdit = () => {
     if (!editingId) return;
     setSaving(true);
+    // Find original officer to check if sector changed
+    const original = flatOfficers.find((o) => o._id === editingId);
+    if (original && editForm.sectorId !== original.sectorId) {
+      reassignMut.mutate({ id: editingId, sectorId: editForm.sectorId });
+    }
     updateMut.mutate({
       id: editingId,
       data: {
@@ -364,12 +391,12 @@ const Mapping: React.FC = () => {
                   <tr>
                     <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">S.No</th>
                     <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Police Station</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Name Of The Officer</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Direct/Ranker</th>
+                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">SHO Name</th>
+                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Sector</th>
+                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Officer Name</th>
                     <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Rank</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Phone No</th>
+                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Phone Number</th>
                     <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Batch</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Remarks</th>
                     <th className="text-center px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
@@ -384,13 +411,9 @@ const Mapping: React.FC = () => {
                           {zoneSectors.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                         </select>
                       </td>
+                      <td className="px-3 py-2 text-gray-400 text-xs">Auto</td>
+                      <td className="px-3 py-2 text-gray-400 text-xs">Auto</td>
                       <td className="px-3 py-2"><input className={inputCls} placeholder="Name" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} /></td>
-                      <td className="px-3 py-2">
-                        <select className={inputCls} value={addForm.recruitmentType} onChange={(e) => setAddForm({ ...addForm, recruitmentType: e.target.value })}>
-                          <option value="DIRECT">Direct</option>
-                          <option value="RANKER">Ranker</option>
-                        </select>
-                      </td>
                       <td className="px-3 py-2">
                         <select className={inputCls} value={addForm.rank} onChange={(e) => setAddForm({ ...addForm, rank: e.target.value })}>
                           {RANKS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -398,7 +421,6 @@ const Mapping: React.FC = () => {
                       </td>
                       <td className="px-3 py-2"><input className={inputCls} placeholder="Phone" value={addForm.phone} onChange={(e) => setAddForm({ ...addForm, phone: e.target.value })} /></td>
                       <td className="px-3 py-2"><input className={inputCls} placeholder="Batch" value={addForm.batch} onChange={(e) => setAddForm({ ...addForm, batch: e.target.value })} /></td>
-                      <td className="px-3 py-2"><input className={inputCls} placeholder="Remarks" value={addForm.remarks} onChange={(e) => setAddForm({ ...addForm, remarks: e.target.value })} /></td>
                       <td className="px-3 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={saveAdd} disabled={saving || !addForm.name || !addForm.phone || !addForm.sectorId} className="p-1 rounded hover:bg-green-200 text-green-700 disabled:opacity-40" title="Save">
@@ -427,14 +449,12 @@ const Mapping: React.FC = () => {
                         return (
                           <tr key={off._id} className="bg-blue-50">
                             <td className="px-3 py-2 text-gray-500 font-mono text-xs">{idx + 1}</td>
-                            <td className="px-3 py-2 font-medium text-gray-700">{off.stationName}</td>
-                            <td className="px-3 py-2"><input className={inputCls} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></td>
-                            <td className="px-3 py-2">
-                              <select className={inputCls} value={editForm.recruitmentType} onChange={(e) => setEditForm({ ...editForm, recruitmentType: e.target.value })}>
-                                <option value="DIRECT">Direct</option>
-                                <option value="RANKER">Ranker</option>
+                            <td colSpan={3} className="px-3 py-2">
+                              <select className={inputCls} value={editForm.sectorId} onChange={(e) => setEditForm({ ...editForm, sectorId: e.target.value })}>
+                                {zoneSectors.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                               </select>
                             </td>
+                            <td className="px-3 py-2"><input className={inputCls} value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></td>
                             <td className="px-3 py-2">
                               <select className={inputCls} value={editForm.rank} onChange={(e) => setEditForm({ ...editForm, rank: e.target.value })}>
                                 {RANKS.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -442,7 +462,6 @@ const Mapping: React.FC = () => {
                             </td>
                             <td className="px-3 py-2"><input className={inputCls} value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} /></td>
                             <td className="px-3 py-2"><input className={inputCls} value={editForm.batch} onChange={(e) => setEditForm({ ...editForm, batch: e.target.value })} /></td>
-                            <td className="px-3 py-2"><input className={inputCls} value={editForm.remarks} onChange={(e) => setEditForm({ ...editForm, remarks: e.target.value })} /></td>
                             <td className="px-3 py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <button onClick={saveEdit} disabled={saving} className="p-1 rounded hover:bg-green-200 text-green-700 disabled:opacity-40" title="Save">
@@ -478,7 +497,7 @@ const Mapping: React.FC = () => {
                         );
                       }
 
-                      const isHighlighted = off.rank === 'WSI' || String(off.remarks).toLowerCase().includes('admin') || off.recruitmentType === 'RANKER';
+                      const isHighlighted = off.rank === 'WSI' || String(off.remarks).toLowerCase().includes('admin');
 
                       return (
                         <tr key={off._id} className={`hover:bg-blue-50/50 transition-colors ${isHighlighted ? 'bg-yellow-50' : ''}`}>
@@ -489,14 +508,13 @@ const Mapping: React.FC = () => {
                               <span className="font-medium text-gray-700">{off.stationName}</span>
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 font-medium text-gray-800">{off.name}</td>
+                          <td className="px-3 py-2.5 text-gray-700">{off.shoName}</td>
                           <td className="px-3 py-2.5">
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
-                              off.recruitmentType === 'RANKER' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
-                            }`}>
-                              {off.recruitmentType === 'RANKER' ? 'Ranker' : 'Direct'}
+                            <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700">
+                              {off.sectorName}
                             </span>
                           </td>
+                          <td className="px-3 py-2.5 font-medium text-gray-800">{off.name}</td>
                           <td className="px-3 py-2.5">
                             <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
                               off.rank === 'WSI' ? 'bg-pink-100 text-pink-700' :
@@ -508,15 +526,6 @@ const Mapping: React.FC = () => {
                           </td>
                           <td className="px-3 py-2.5 text-gray-600 font-mono text-xs">{off.phone}</td>
                           <td className="px-3 py-2.5 text-gray-600">{off.batch || '—'}</td>
-                          <td className="px-3 py-2.5">
-                            <span className={`text-xs ${
-                              String(off.remarks).toLowerCase().includes('admin') ? 'font-semibold text-amber-700' :
-                              String(off.remarks).toLowerCase().includes('dsi') ? 'font-semibold text-purple-700' :
-                              'text-gray-600'
-                            }`}>
-                              {off.remarks || '—'}
-                            </span>
-                          </td>
                           <td className="px-3 py-2.5 text-center">
                             <div className="flex items-center justify-center gap-1">
                               <button onClick={() => startEdit(off)} className="p-1 rounded hover:bg-blue-100 text-blue-600" title="Edit">

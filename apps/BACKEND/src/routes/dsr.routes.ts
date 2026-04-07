@@ -80,4 +80,26 @@ router.post('/upload', authenticate, requireMinRank(OfficerRank.SI), upload.arra
   }
 });
 
+// PUT /api/dsr/:id
+router.put('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const dsr = await DSR.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
+    res.json({ data: dsr });
+  } catch {
+    res.status(500).json({ error: 'Failed to update DSR' });
+  }
+});
+
+// DELETE /api/dsr/:id
+router.delete('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const dsr = await DSR.findByIdAndDelete(req.params.id);
+    if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete DSR' });
+  }
+});
+
 export default router;

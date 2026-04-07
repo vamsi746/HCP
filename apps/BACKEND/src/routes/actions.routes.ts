@@ -86,4 +86,27 @@ router.patch('/:id/close', authenticate, requireMinRank(OfficerRank.CI), async (
   }
 });
 
+// PUT /api/actions/:id
+router.put('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const action = await DisciplinaryAction.findByIdAndUpdate(req.params.id, req.body, { new: true })
+      .populate('officerId', 'name badgeNumber rank');
+    if (!action) { res.status(404).json({ error: 'Action not found' }); return; }
+    res.json({ data: action });
+  } catch {
+    res.status(500).json({ error: 'Failed to update action' });
+  }
+});
+
+// DELETE /api/actions/:id
+router.delete('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const action = await DisciplinaryAction.findByIdAndDelete(req.params.id);
+    if (!action) { res.status(404).json({ error: 'Action not found' }); return; }
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete action' });
+  }
+});
+
 export default router;

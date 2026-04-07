@@ -62,6 +62,28 @@ router.get('/stats/by-officer', authenticate, async (_req: Request, res: Respons
   }
 });
 
+// PUT /api/violations/:id
+router.put('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const violation = await Violation.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate('officerId', 'name badgeNumber rank');
+    if (!violation) { res.status(404).json({ error: 'Violation not found' }); return; }
+    res.json({ data: violation });
+  } catch {
+    res.status(500).json({ error: 'Failed to update violation' });
+  }
+});
+
+// DELETE /api/violations/:id
+router.delete('/:id', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const violation = await Violation.findByIdAndDelete(req.params.id);
+    if (!violation) { res.status(404).json({ error: 'Violation not found' }); return; }
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete violation' });
+  }
+});
+
 // GET /api/violations/stats/by-zone
 router.get('/stats/by-zone', authenticate, async (_req: Request, res: Response) => {
   try {

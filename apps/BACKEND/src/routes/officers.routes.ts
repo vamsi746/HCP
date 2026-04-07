@@ -81,6 +81,20 @@ router.post('/:id/assign-sector', authenticate, requireMinRank(OfficerRank.CI), 
   }
 });
 
+// PUT /api/officers/:id/reassign-sector
+router.put('/:id/reassign-sector', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const { sectorId, role } = req.body;
+    // Deactivate current assignments
+    await SectorOfficer.updateMany({ officerId: req.params.id, isActive: true }, { isActive: false });
+    // Create new assignment
+    const assignment = await SectorOfficer.create({ sectorId, officerId: req.params.id, role: role || 'PRIMARY_SI' });
+    res.json({ data: assignment });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // DELETE /api/officers/:id
 router.delete('/:id', authenticate, requireMinRank(OfficerRank.ACP), async (req: Request, res: Response) => {
   try {

@@ -1,14 +1,22 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { getActions } from '../services/endpoints';
-import { FileText, AlertTriangle, Ban, Download } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getActions, updateAction, deleteAction } from '../services/endpoints';
+import { FileText, AlertTriangle, Ban, Download, Pencil, Trash2, X } from 'lucide-react';
+import toast from 'react-hot-toast';
 import type { DisciplinaryAction } from '../types';
+
+const ACTION_TYPES = ['COUNSELING', 'WARNING', 'SHOW_CAUSE', 'ENQUIRY', 'SUSPENSION', 'COMMENDATION', 'TRANSFER_RECOMMENDATION'];
+const ACTION_STATUSES = ['PENDING', 'ACKNOWLEDGED', 'RESPONDED', 'CLOSED', 'APPEALED'];
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
 const Actions: React.FC = () => {
   const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] = useState<string>('');
+  const [editItem, setEditItem] = useState<DisciplinaryAction | null>(null);
+  const [deleteItem, setDeleteItem] = useState<DisciplinaryAction | null>(null);
+  const [editForm, setEditForm] = useState({ actionType: '', status: '', responseDeadline: '' });
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ['actions', page, typeFilter],
@@ -18,6 +26,31 @@ const Actions: React.FC = () => {
       const res = await getActions(params);
       return res.data;
     },
+  });
+
+  const openEdit = (a: DisciplinaryAction) => {
+    setEditForm({ actionType: a.actionType, status: a.status, responseDeadline: a.responseDeadline ? new Date(a.responseDeadline).toISOString().split('T')[0] : '' });
+    setEditItem(a);
+  };
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) => updateAction(id, data),
+    onSuccess: () => {
+      toast.success('Action updated');
+      queryClient.invalidateQueries({ queryKey: ['actions'] });
+      setEditItem(null);
+    },
+    onError: () => toast.error('Failed to update action'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteAction(id),
+    onSuccess: () => {
+      toast.success('Action deleted');
+      queryClient.invalidateQueries({ queryKey: ['actions'] });
+      setDeleteItem(null);
+    },
+    onError: () => toast.error('Failed to delete action'),
   });
 
   const actions: DisciplinaryAction[] = data?.data || [];
@@ -114,13 +147,14 @@ const Actions: React.FC = () => {
               <th className="px-4 py-3 font-semibold">Status</th>
               <th className="px-4 py-3 font-semibold">Deadline</th>
               <th className="px-4 py-3 font-semibold">Document</th>
+              <th className="px-4 py-3 font-semibold">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">Loading…</td></tr>
             ) : actions.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No actions found. Warnings will appear here when incidents are logged.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No actions found. Warnings will appear here when incidents are logged.</td></tr>
             ) : (
               actions.map((a) => (
                 <tr key={a._id} className="border-t hover:bg-gray-50">
@@ -157,6 +191,12 @@ const Actions: React.FC = () => {
                       <span className="text-gray-300">—</span>
                     )}
                   </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openEdit(a)} className="text-gray-500 hover:text-blue-600" title="Edit"><Pencil size={14} /></button>
+                      <button onClick={() => setDeleteItem(a)} className="text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
                 </tr>
               ))
             )}
@@ -169,6 +209,63 @@ const Actions: React.FC = () => {
           <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="px-3 py-1 border rounded disabled:opacity-50 text-sm">Prev</button>
           <span className="px-3 py-1 text-sm text-gray-500">Page {page}</span>
           <button disabled={page * 20 >= pagination.total} onClick={() => setPage(page + 1)} className="px-3 py-1 border rounded disabled:opacity-50 text-sm">Next</button>
+        </div>
+      )}
+
+      {/* Edit Action Modal */}
+      {editItem && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-gray-800">Edit Action</h2>
+              <button onClick={() => setEditItem(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Action Type</label>
+                <select value={editForm.actionType} onChange={(e) => setEditForm({ ...editForm, actionType: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  {ACTION_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  {ACTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Response Deadline</label>
+                <input type="date" value={editForm.responseDeadline} onChange={(e) => setEditForm({ ...editForm, responseDeadline: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-5">
+              <button onClick={() => setEditItem(null)} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+              <button onClick={() => editMutation.mutate({ id: editItem._id, data: editForm })} disabled={editMutation.isPending} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                {editMutation.isPending ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation */}
+      {deleteItem && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center">
+            <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
+              <Trash2 className="text-red-600" size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Delete Action?</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              This will permanently delete {deleteItem.actionType.replace(/_/g, ' ')} #{deleteItem.actionNumber} for {deleteItem.officer?.name || 'this officer'}. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteItem(null)} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+              <button onClick={() => deleteMutation.mutate(deleteItem._id)} disabled={deleteMutation.isPending} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
+                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

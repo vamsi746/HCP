@@ -28,7 +28,7 @@ const app = express();
 
 // Middleware
 app.use(helmet());
-app.use(cors({ origin: '*' }));
+app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true }));
 app.use(cookieParser());
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
