@@ -5,7 +5,7 @@ export { Circle } from './Circle';
 export { PoliceStation } from './PoliceStation';
 export { Sector } from './Sector';
 export { Case, CrimeType, HandlerType } from './Case';
-export { DSR, DSRStatus } from './DSR';
+export { DSR, DSRStatus, ForceType } from './DSR';
 export { Violation, ViolationType, Severity } from './Violation';
 export { DisciplinaryAction, ActionType, ActionStatus } from './DisciplinaryAction';
 export { Appeal, AppealStatus } from './Appeal';

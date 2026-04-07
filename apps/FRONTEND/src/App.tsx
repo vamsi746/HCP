@@ -10,6 +10,7 @@ import Officers from './pages/Officers';
 import OfficerDetail from './pages/OfficerDetail';
 import DSRList from './pages/DSR/List';
 import DSRUpload from './pages/DSR/Upload';
+import DSRDetail from './pages/DSR/Detail';
 import Cases from './pages/Cases';
 import Violations from './pages/Violations';
 import Actions from './pages/Actions';
@@ -48,6 +49,7 @@ const App: React.FC = () => {
           <Route path="/officers/:id" element={<OfficerDetail />} />
           <Route path="/dsr" element={<DSRList />} />
           <Route path="/dsr/upload" element={<DSRUpload />} />
+          <Route path="/dsr/:id" element={<DSRDetail />} />
           <Route path="/actions" element={<Actions />} />
           <Route path="/appeals" element={<Appeals />} />
           <Route path="/reports" element={<Reports />} />

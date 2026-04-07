@@ -84,10 +84,13 @@ export const deleteAppeal = (id: string) =>
 export const getDSRs = (params?: Record<string, unknown>) =>
   api.get('/dsr', { params });
 
+export const getDSR = (id: string) => api.get(`/dsr/${id}`);
+
 export const uploadDSR = (formData: FormData) =>
   api.post('/dsr/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 
-export const getDSRStats = () => api.get('/dsr/stats');
+export const getDSRStats = () => api.get('/dsr/stats/summary');
+
 
 export const updateDSR = (id: string, data: Record<string, unknown>) =>
   api.put(`/dsr/${id}`, data);

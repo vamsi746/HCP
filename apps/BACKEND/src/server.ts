@@ -1,3 +1,6 @@
+import dns from 'node:dns';
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -28,7 +31,7 @@ const app = express();
 
 // Middleware
 app.use(helmet());
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:3000', credentials: true }));
+app.use(cors({ origin: config.clientUrl, credentials: true }));
 app.use(cookieParser());
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));

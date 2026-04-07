@@ -1,18 +1,21 @@
 import { Router, Request, Response } from 'express';
-import { DSR, DSRStatus } from '../models';
+import path from 'path';
+import { DSR, DSRStatus, ForceType } from '../models';
 import { authenticate } from '../middleware/auth';
 import { requireMinRank } from '../middleware/rbac';
-import { OfficerRank } from '../models';
+import { OfficerRank, PoliceStation, SectorOfficer, Sector } from '../models';
 import { upload } from '../middleware/upload';
+import { extractTextFromDocx, parseTaskForceDSR, matchPoliceStation } from '../services/dsr-parser';
 
 const router = Router();
 
-// GET /api/dsr
+// GET /api/dsr — list DSRs
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { status, zoneId, startDate, endDate, page = '1', limit = '20' } = req.query;
+    const { status, forceType, zoneId, startDate, endDate, page = '1', limit = '20' } = req.query;
     const filter: any = {};
     if (status) filter.processingStatus = status;
+    if (forceType) filter.forceType = forceType;
     if (zoneId) filter.zoneId = zoneId;
     if (startDate || endDate) {
       filter.date = {};
@@ -22,7 +25,12 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
 
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const [dsrs, total] = await Promise.all([
-      DSR.find(filter).populate('zoneId uploadedBy', 'name code badgeNumber').skip(skip).limit(parseInt(limit as string)).sort({ date: -1 }).lean(),
+      DSR.find(filter)
+        .populate('zoneId uploadedBy', 'name code badgeNumber')
+        .skip(skip)
+        .limit(parseInt(limit as string))
+        .sort({ date: -1 })
+        .lean(),
       DSR.countDocuments(filter),
     ]);
 
@@ -44,10 +52,15 @@ router.get('/stats/summary', authenticate, async (_req: Request, res: Response) 
   }
 });
 
-// GET /api/dsr/:id
+// GET /api/dsr/:id — full DSR with parsed cases
 router.get('/:id', authenticate, async (req: Request, res: Response) => {
   try {
-    const dsr = await DSR.findById(req.params.id).populate('zoneId uploadedBy policeStationId').lean();
+    const dsr = await DSR.findById(req.params.id)
+      .populate('zoneId uploadedBy policeStationId')
+      .populate('parsedCases.matchedPSId', 'name code')
+      .populate('parsedCases.matchedZoneId', 'name code')
+      .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')
+      .lean();
     if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
     res.json({ data: dsr });
   } catch {
@@ -55,26 +68,131 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/dsr/upload
-router.post('/upload', authenticate, requireMinRank(OfficerRank.SI), upload.array('files', 20), async (req: Request, res: Response) => {
+// POST /api/dsr/upload — upload + parse DSR document
+router.post('/upload', authenticate, upload.single('file'), async (req: Request, res: Response) => {
   try {
-    const files = req.files as Express.Multer.File[];
-    if (!files?.length) { res.status(400).json({ error: 'No files uploaded' }); return; }
+    const file = req.file;
+    if (!file) { res.status(400).json({ error: 'No file uploaded' }); return; }
 
-    const dsrs = await Promise.all(
-      files.map((file) =>
-        DSR.create({
-          date: req.body.date || new Date(),
-          zoneId: req.body.zoneId || undefined,
-          fileName: file.originalname,
-          fileType: file.mimetype,
-          processingStatus: DSRStatus.PENDING,
-          uploadedBy: req.user!.id,
-        })
-      )
-    );
+    const { forceType } = req.body;
+    if (!forceType || !Object.values(ForceType).includes(forceType)) {
+      res.status(400).json({ error: 'Invalid forceType. Must be TASK_FORCE, H_FAST, or H_NEW' });
+      return;
+    }
 
-    res.status(201).json({ data: dsrs });
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    // Create DSR record
+    const dsr = await DSR.create({
+      date: req.body.date || new Date(),
+      forceType,
+      fileName: file.originalname,
+      fileType: file.mimetype,
+      processingStatus: DSRStatus.PROCESSING,
+      uploadedBy: req.user!.id,
+    });
+
+    // Parse the document from memory buffer (no file stored on disk)
+    try {
+      let rawText = '';
+      if (ext === '.docx') {
+        rawText = await extractTextFromDocx(file.buffer);
+      } else if (ext === '.txt') {
+        rawText = file.buffer.toString('utf8');
+      } else {
+        dsr.processingStatus = DSRStatus.MANUAL_REVIEW;
+        dsr.missingFields = ['Unsupported file format — only .docx and .txt are supported for auto-parsing'];
+        await dsr.save();
+        res.status(201).json({ data: dsr, message: 'File uploaded but format not supported for auto-parsing' });
+        return;
+      }
+
+      // Parse based on force type
+      let parseResult;
+      if (forceType === ForceType.TASK_FORCE) {
+        parseResult = parseTaskForceDSR(rawText);
+      } else {
+        // H_FAST and H_NEW parsers to be added later — for now save raw text
+        dsr.rawText = rawText;
+        dsr.processingStatus = DSRStatus.MANUAL_REVIEW;
+        dsr.missingFields = [`Parser for ${forceType} not yet implemented`];
+        await dsr.save();
+        res.status(201).json({ data: dsr, message: `File uploaded. ${forceType} parser coming soon.` });
+        return;
+      }
+
+      // Match police stations and officers for each parsed case
+      const parsedCases = [];
+      for (const c of parseResult.cases) {
+        const matchedPSId = await matchPoliceStation(c.policeStation);
+
+        // If PS matched, find the sector SI responsible
+        let matchedOfficerId: string | null = null;
+        let matchedZoneId: string | null = null;
+        if (matchedPSId) {
+          const ps = await PoliceStation.findById(matchedPSId).populate('circleId').lean() as any;
+          if (ps) {
+            // Walk up: PS → Circle → Division → Zone
+            if (ps.circleId?.divisionId) {
+              const Division = require('../models').Division;
+              const div = await Division.findById(ps.circleId.divisionId).lean() as any;
+              if (div?.zoneId) matchedZoneId = div.zoneId.toString();
+            }
+          }
+
+          // Find sectors for this PS then the primary SI
+          const sectors = await Sector.find({ policeStationId: matchedPSId }).lean();
+          if (sectors.length > 0) {
+            const sectorOfficer = await SectorOfficer.findOne({
+              sectorId: { $in: sectors.map((s) => s._id) },
+              role: 'PRIMARY_SI',
+              isActive: true,
+            }).lean();
+            if (sectorOfficer) {
+              matchedOfficerId = sectorOfficer.officerId.toString();
+            }
+          }
+        }
+
+        parsedCases.push({
+          ...c,
+          matchedPSId: matchedPSId || undefined,
+          matchedZoneId: matchedZoneId || undefined,
+          matchedOfficerId: matchedOfficerId || undefined,
+        });
+      }
+
+      // Update DSR with parsed data
+      dsr.rawText = parseResult.rawText;
+      dsr.parsedCases = parsedCases as any;
+      dsr.totalCases = parseResult.totalCases;
+      dsr.processingStatus = DSRStatus.COMPLETED;
+      dsr.processedAt = new Date();
+
+      if (parseResult.reportDate) {
+        const parts = parseResult.reportDate.split(/[-/.]/);
+        if (parts.length === 3) {
+          const d = new Date(`${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`);
+          if (!isNaN(d.getTime())) dsr.date = d;
+        }
+      }
+
+      await dsr.save();
+
+      // Re-fetch with populated fields
+      const populated = await DSR.findById(dsr._id)
+        .populate('parsedCases.matchedPSId', 'name code')
+        .populate('parsedCases.matchedZoneId', 'name code')
+        .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')
+        .lean();
+
+      res.status(201).json({ data: populated });
+    } catch (parseErr: any) {
+      dsr.processingStatus = DSRStatus.FAILED;
+      dsr.missingFields = [parseErr.message || 'Parse error'];
+      await dsr.save();
+      res.status(201).json({ data: dsr, error: 'Upload succeeded but parsing failed', details: parseErr.message });
+    }
   } catch {
     res.status(500).json({ error: 'Upload failed' });
   }

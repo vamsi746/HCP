@@ -83,18 +83,47 @@ export interface Case {
   updatedAt: string;
 }
 
-export type DSRStatus = 'PENDING' | 'REVIEWED' | 'APPROVED' | 'REJECTED' | 'FLAGGED';
+export type DSRStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'MANUAL_REVIEW';
+export type ForceType = 'TASK_FORCE' | 'H_FAST' | 'H_NEW';
+export interface ExtractedLocation {
+  type: 'ps_reference' | 'residential' | 'incident_area';
+  rawText: string;
+  psName?: string;
+}
+
+export interface ParsedCase {
+  _id: string;
+  slNo: number;
+  zone: string;
+  crimeHead: string;
+  policeStation: string;
+  crNo: string;
+  sections: string;
+  dor: string;
+  accusedDetails: string;
+  briefFacts: string;
+  seizedProperty: string;
+  seizedWorth: string;
+  numAccused: number;
+  numCases: number;
+  abscondingAccused: string;
+  matchedPSId?: { _id: string; name: string; code: string } | string;
+  matchedZoneId?: { _id: string; name: string; code: string } | string;
+  matchedOfficerId?: { _id: string; name: string; badgeNumber: string; rank: string; phone: string } | string;
+  extractedLocations: ExtractedLocation[];
+  warningGenerated: boolean;
+  warningId?: string;
+}
 
 export interface DSR {
   _id: string;
-  officerId: string;
-  officer?: Officer;
   date: string;
-  content: string;
-  status: DSRStatus;
-  filePath?: string;
-  reviewedBy?: string;
-  reviewNotes?: string;
+  forceType: ForceType;
+  fileName?: string;
+  processingStatus: DSRStatus;
+  parsedCases?: ParsedCase[];
+  totalCases: number;
+  uploadedBy?: { _id: string; name: string; badgeNumber: string } | string;
   createdAt: string;
 }
 
