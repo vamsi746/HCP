@@ -11,6 +11,7 @@ interface SeedOfficerData {
   type?: 'DIRECT' | 'RANKER'; // recruitment type
   rank?: string; // SI, WSI, PSI etc.
   batch?: number; // year
+  remarks?: string;
 }
 
 interface SeedStationData {
