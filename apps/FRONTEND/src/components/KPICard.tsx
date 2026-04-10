@@ -18,5 +18,5 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, icon: Icon, color = 'te
     </div>
   </div>
 );
-
+// --- IGNORE ---
 export default KPICard;
