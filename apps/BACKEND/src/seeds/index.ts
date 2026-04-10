@@ -565,9 +565,9 @@ async function seed() {
   await connectDB();
   console.log('Connected to MongoDB. Seeding...');
 
-  // Clear all collections
+  // Clear all collections (preserve admin account)
   await Promise.all([
-    Officer.deleteMany({}),
+    Officer.deleteMany({ badgeNumber: { $ne: 'admin@hcp.com' } }),
     SectorOfficer.deleteMany({}),
     Sector.deleteMany({}),
     PoliceStation.deleteMany({}),
@@ -623,25 +623,41 @@ async function seed() {
       });
       totalStations++;
 
+      // Roman numeral to number converter
+      const romanToNum = (r: string): number => {
+        const map: Record<string, number> = { I: 1, V: 5, X: 10 };
+        let result = 0;
+        const s = r.toUpperCase();
+        for (let i = 0; i < s.length; i++) {
+          const cur = map[s[i]] || 0;
+          const next = map[s[i + 1]] || 0;
+          result += cur < next ? -cur : cur;
+        }
+        return result;
+      };
+
+      // Normalize role text: convert ALL Roman numerals to numbers
+      const normalizeRole = (role: string): string => {
+        // Convert "Sector-I", "Sector –III" etc.
+        let result = role.replace(/Sector[\s\-–]+([IVX]+)/gi, (_m, rom) => `Sector ${romanToNum(rom)}`);
+        // Convert standalone Roman after "and" or "&": "and II" → "& 2"
+        result = result.replace(/(?:and|&)\s*([IVX]+)\b/gi, (_m, rom) => `& ${romanToNum(rom)}`);
+        return result;
+      };
+
+      // Extract all sector numbers from a role string
+      // If role mentions "Sec/Sector", collect ALL single digits as sector numbers
+      const extractSectorNums = (role: string): string[] => {
+        if (!/sec/i.test(role)) return [];
+        return [...role.matchAll(/(\d)/g)].map(m => m[1]);
+      };
+
       // Determine sectors from officer roles
       const sectorNames = new Set<string>();
       for (const off of stationData.officers) {
-        // Match roman: "Sector-I", "Sector –V", "Sector – III", "Sector -II" etc.
-        const romanMatches = off.role.match(/Sector[\s\-–]+[IVX]+/gi);
-        // Match numeric: "Sector 1", "Sector-3", "Sec – 2"
-        const numMatches = off.role.match(/Sec(?:t?or|ctor)?[\s\-–]*(\d)/gi);
-        if (romanMatches) {
-          for (const m of romanMatches) {
-            // Normalize to "Sector-I" form
-            const roman = m.replace(/Sector[\s\-–]+/i, '').trim();
-            sectorNames.add(`Sector-${roman.toUpperCase()}`);
-          }
-        }
-        if (numMatches) {
-          for (const m of numMatches) {
-            const numMatch = m.match(/(\d)/);
-            if (numMatch) sectorNames.add(`Sector ${numMatch[1]}`);
-          }
+        const normalized = normalizeRole(off.role);
+        for (const n of extractSectorNums(normalized)) {
+          sectorNames.add(`Sector ${n}`);
         }
       }
       // Ensure at least 4 sectors per station
@@ -661,6 +677,7 @@ async function seed() {
       for (const off of stationData.officers) {
         badgeCounter++;
         const badge = `HCP-${String(badgeCounter).padStart(4, '0')}`;
+        const normalizedRole = normalizeRole(off.role);
 
         const officer = await Officer.create({
           name: off.name,
@@ -669,45 +686,25 @@ async function seed() {
           phone: off.phone,
           recruitmentType: off.type || 'DIRECT',
           batch: off.batch,
-          remarks: off.role,
+          remarks: normalizedRole,
           passwordHash,
           isActive: true,
         });
         totalOfficers++;
 
-        // Assign to sectors
-        const romanMatches = off.role.match(/Sector[\s\-–]+[IVX]+/gi);
-        const numMatches = off.role.match(/Sec(?:t?or|ctor)?[\s\-–]*(\d)/gi);
+        // Assign to ALL sectors mentioned in role
+        const sectorNums = extractSectorNums(normalizedRole);
         let assigned = false;
-        if (romanMatches) {
-          for (const sm of romanMatches) {
-            const roman = sm.replace(/Sector[\s\-–]+/i, '').trim();
-            const key = `Sector-${roman.toUpperCase()}`;
-            const sector = sectorMap[key];
-            if (sector) {
-              await SectorOfficer.create({ sectorId: sector._id, officerId: officer._id, role: 'PRIMARY_SI' });
-              assigned = true;
-            }
+        for (const n of sectorNums) {
+          const key = `Sector ${n}`;
+          const sector = sectorMap[key];
+          if (sector) {
+            await SectorOfficer.create({ sectorId: sector._id, officerId: officer._id, role: 'PRIMARY_SI' });
+            assigned = true;
           }
         }
-        if (numMatches) {
-          for (const nm of numMatches) {
-            const numMatch = nm.match(/(\d)/);
-            if (numMatch) {
-              const key = `Sector ${numMatch[1]}`;
-              const sector = sectorMap[key];
-              if (sector) {
-                await SectorOfficer.create({ sectorId: sector._id, officerId: officer._id, role: 'PRIMARY_SI' });
-                assigned = true;
-              }
-            }
-          }
-        }
-        if (!assigned && off.role.toLowerCase().includes('admin') && Object.values(sectorMap)[0]) {
-          // Admin SIs assigned to first sector
-          await SectorOfficer.create({ sectorId: Object.values(sectorMap)[0]._id, officerId: officer._id, role: 'PRIMARY_SI' });
-        } else if (!assigned && off.role.toLowerCase().includes('dsi') && Object.values(sectorMap)[0]) {
-          // DSI assigned to first sector
+        if (!assigned && Object.values(sectorMap)[0]) {
+          // Admin, DSI, Maternity Leave, General, Crime etc. — assign to first sector
           await SectorOfficer.create({ sectorId: Object.values(sectorMap)[0]._id, officerId: officer._id, role: 'PRIMARY_SI' });
         }
       }

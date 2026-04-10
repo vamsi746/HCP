@@ -84,7 +84,7 @@ export interface Case {
 }
 
 export type DSRStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'MANUAL_REVIEW';
-export type ForceType = 'TASK_FORCE' | 'H_FAST' | 'H_NEW';
+export type ForceType = 'CHARMINAR_GOLCONDA' | 'RAJENDRANAGAR_SHAMSHABAD' | 'KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS';
 export interface ExtractedLocation {
   type: 'ps_reference' | 'residential' | 'incident_area';
   rawText: string;
@@ -95,21 +95,29 @@ export interface ParsedCase {
   _id: string;
   slNo: number;
   zone: string;
-  crimeHead: string;
   policeStation: string;
+  sector: string;
+  socialViceType: string;
+  actionTakenBy: string;
+  natureOfCase: string;
   crNo: string;
   sections: string;
   dor: string;
-  accusedDetails: string;
-  briefFacts: string;
+  psWithCrDetails: string;
+  accusedParticulars: string;
   seizedProperty: string;
   seizedWorth: string;
   numAccused: number;
   numCases: number;
-  abscondingAccused: string;
+  abscondingAccused: number;
+  crimeHead: string;
+  accusedDetails: string;
+  briefFacts: string;
   matchedPSId?: { _id: string; name: string; code: string } | string;
   matchedZoneId?: { _id: string; name: string; code: string } | string;
+  matchedSectorId?: { _id: string; name: string } | string;
   matchedOfficerId?: { _id: string; name: string; badgeNumber: string; rank: string; phone: string } | string;
+  matchedSHOId?: { _id: string; name: string; badgeNumber: string; rank: string; phone: string } | string;
   extractedLocations: ExtractedLocation[];
   warningGenerated: boolean;
   warningId?: string;
@@ -119,6 +127,7 @@ export interface DSR {
   _id: string;
   date: string;
   forceType: ForceType;
+  raidedBy?: string;
   fileName?: string;
   processingStatus: DSRStatus;
   parsedCases?: ParsedCase[];
@@ -208,6 +217,43 @@ export interface MappingDivision extends Division {
 }
 export interface MappingZone extends Zone {
   divisions: MappingDivision[];
+}
+
+// Memo types
+export type MemoStatus = 'DRAFT' | 'PENDING_REVIEW' | 'REVIEWED' | 'APPROVED' | 'SENT';
+
+export interface Memo {
+  _id: string;
+  dsrId: string;
+  caseId: string;
+  memoNumber?: string;
+  date: string;
+  subject: string;
+  reference: string;
+  content: string;
+  status: MemoStatus;
+  crimeNo?: string;
+  sections?: string;
+  policeStation?: string;
+  psId?: string | { _id: string; name: string; code: string };
+  zone?: string;
+  zoneId?: string | { _id: string; name: string; code: string };
+  briefFacts?: string;
+  recipientType?: 'SI' | 'SHO';
+  recipientId?: string | Officer;
+  recipientName?: string;
+  recipientDesignation?: string;
+  recipientPS?: string;
+  copyTo?: { designation: string; name: string; unit: string }[];
+  generatedBy?: string | { _id: string; name: string; badgeNumber: string; rank: string };
+  reviewedBy?: string | { _id: string; name: string; badgeNumber: string; rank: string };
+  approvedBy?: string | { _id: string; name: string; badgeNumber: string; rank: string };
+  generatedAt?: string;
+  reviewedAt?: string;
+  approvedAt?: string;
+  remarks?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PaginatedResponse<T> {

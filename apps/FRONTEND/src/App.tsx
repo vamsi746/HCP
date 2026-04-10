@@ -11,13 +11,15 @@ import OfficerDetail from './pages/OfficerDetail';
 import DSRList from './pages/DSR/List';
 import DSRUpload from './pages/DSR/Upload';
 import DSRDetail from './pages/DSR/Detail';
+import MemoList from './pages/Memos/List';
+import MemoEditorPage from './pages/Memos/Editor';
 import Cases from './pages/Cases';
 import Violations from './pages/Violations';
 import Actions from './pages/Actions';
-import Appeals from './pages/Appeals';
 import Reports from './pages/Reports';
 import Mapping from './pages/Mapping';
 import GIS from './pages/GIS';
+import Review from './pages/Review';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useSelector((s: RootState) => s.auth);
@@ -50,9 +52,11 @@ const App: React.FC = () => {
           <Route path="/dsr" element={<DSRList />} />
           <Route path="/dsr/upload" element={<DSRUpload />} />
           <Route path="/dsr/:id" element={<DSRDetail />} />
+          <Route path="/compliance" element={<MemoList />} />
+          <Route path="/compliance/:id" element={<MemoEditorPage />} />
           <Route path="/actions" element={<Actions />} />
-          <Route path="/appeals" element={<Appeals />} />
           <Route path="/reports" element={<Reports />} />
+          <Route path="/review" element={<Review />} />
           <Route path="/mapping" element={<Mapping />} />
           <Route path="/gis" element={<GIS />} />
         </Route>

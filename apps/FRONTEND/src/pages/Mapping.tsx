@@ -200,7 +200,7 @@ const Mapping: React.FC = () => {
     filteredOfficers.forEach((off, i) => {
       csvRows.push([
         i + 1, `"${off.stationName}"`, `"${off.shoName}"`,
-        `"${off.sectorName}"`, `"${off.name}"`,
+        `"${off.remarks || off.sectorName}"`, `"${off.name}"`,   
         off.rank, off.phone, off.batch,
       ].join(','));
     });
@@ -510,9 +510,15 @@ const Mapping: React.FC = () => {
                           </td>
                           <td className="px-3 py-2.5 text-gray-700">{off.shoName}</td>
                           <td className="px-3 py-2.5">
-                            <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 text-blue-700">
-                              {off.sectorName}
-                            </span>
+                            {(() => {
+                              const r = (off.remarks || '').toLowerCase();
+                              const cls = r.includes('admin') ? 'bg-yellow-100 text-yellow-800' :
+                                r.includes('dsi') ? 'bg-orange-100 text-orange-700' :
+                                r.includes('maternity') || r.includes('sick') ? 'bg-red-100 text-red-600' :
+                                r.includes('crime') || r.includes('general') ? 'bg-purple-100 text-purple-700' :
+                                'bg-blue-100 text-blue-700';
+                              return <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${cls}`}>{off.remarks || off.sectorName}</span>;
+                            })()}
                           </td>
                           <td className="px-3 py-2.5 font-medium text-gray-800">{off.name}</td>
                           <td className="px-3 py-2.5">

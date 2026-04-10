@@ -6,9 +6,9 @@ export enum DSRStatus {
 }
 
 export enum ForceType {
-  TASK_FORCE = 'TASK_FORCE',
-  H_FAST = 'H_FAST',
-  H_NEW = 'H_NEW',
+  CHARMINAR_GOLCONDA = 'CHARMINAR_GOLCONDA',
+  RAJENDRANAGAR_SHAMSHABAD = 'RAJENDRANAGAR_SHAMSHABAD',
+  KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS = 'KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS',
 }
 
 // A single extracted location from case text
@@ -26,24 +26,33 @@ const parsedCaseSchema = new Schema(
   {
     slNo: Number,
     zone: String,
-    crimeHead: String,
     policeStation: String, // raw name from document
+    sector: String, // e.g. 'Sector 1', 'Sector 2'
+    socialViceType: String, // e.g. 'Gambling', 'Narcotics', 'None'
+    actionTakenBy: String, // e.g. 'Task Force', 'H-Fast', 'H-New'
+    natureOfCase: String, // crime head with sub-details
     crNo: String,
     sections: String,
     dor: String,
-    accusedDetails: String,
-    briefFacts: String,
+    psWithCrDetails: String, // full PS + Cr.No + sections + DOR block
+    accusedParticulars: String, // full "Type of Work and Accused Particulars" text
     seizedProperty: String,
     seizedWorth: String,
     numAccused: Number,
     numCases: Number,
-    abscondingAccused: String,
+    abscondingAccused: Number,
+    // Legacy / enriched fields
+    crimeHead: String,
+    accusedDetails: String,
+    briefFacts: String,
     // Extracted locations from text
     extractedLocations: [extractedLocationSchema],
     // Matched references
     matchedPSId: { type: Schema.Types.ObjectId, ref: 'PoliceStation' },
     matchedZoneId: { type: Schema.Types.ObjectId, ref: 'Zone' },
+    matchedSectorId: { type: Schema.Types.ObjectId, ref: 'Sector' },
     matchedOfficerId: { type: Schema.Types.ObjectId, ref: 'Officer' },
+    matchedSHOId: { type: Schema.Types.ObjectId, ref: 'Officer' },
     // Warning status
     warningGenerated: { type: Boolean, default: false },
     warningId: { type: Schema.Types.ObjectId, ref: 'DisciplinaryAction' },
@@ -57,6 +66,7 @@ const dsrSchema = new Schema(
     forceType: { type: String, enum: Object.values(ForceType), required: true },
     zoneId: { type: Schema.Types.ObjectId, ref: 'Zone' },
     policeStationId: { type: Schema.Types.ObjectId, ref: 'PoliceStation' },
+    raidedBy: String, // Force that conducted the raid, selected during upload
     fileName: String,
     fileType: String,
     rawText: String,

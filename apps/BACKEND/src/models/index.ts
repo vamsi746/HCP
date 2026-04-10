@@ -11,3 +11,4 @@ export { DisciplinaryAction, ActionType, ActionStatus } from './DisciplinaryActi
 export { Appeal, AppealStatus } from './Appeal';
 export { AuditLog } from './AuditLog';
 export { Notification } from './Notification';
+export { Memo, MemoStatus } from './Memo';

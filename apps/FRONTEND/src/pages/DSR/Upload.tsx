@@ -8,9 +8,9 @@ import { uploadDSR } from '../../services/endpoints';
 import type { ForceType } from '../../types';
 
 const FORCE_OPTIONS: { value: ForceType; label: string }[] = [
-  { value: 'TASK_FORCE', label: "Commissioner's Task Force" },
-  { value: 'H_FAST', label: 'H-FAST (Hyderabad Fast Action Special Team)' },
-  { value: 'H_NEW', label: 'H-NEW (Hyderabad New Enforcement Wing)' },
+  { value: 'CHARMINAR_GOLCONDA', label: 'Charminar & Golconda (Task Force only)' },
+  { value: 'RAJENDRANAGAR_SHAMSHABAD', label: 'Rajendra Nagar & Shamshabad (Task Force only)' },
+  { value: 'KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS', label: 'Khairatabad, Secunderabad & Jubilee Hills (Task Force, H-New, H-Fast)' },
 ];
 
 const DSRUpload: React.FC = () => {
@@ -27,9 +27,7 @@ const DSRUpload: React.FC = () => {
       setFile(null);
       setSelectedForce('');
       queryClient.invalidateQueries({ queryKey: ['dsrs'] });
-      if (dsr?._id) {
-        navigate(`/dsr/${dsr._id}`);
-      }
+      navigate('/dsr');
     },
     onError: () => {
       toast.error('Failed to upload DSR');
@@ -44,6 +42,7 @@ const DSRUpload: React.FC = () => {
     onDrop,
     accept: {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/msword': ['.doc'],
       'text/plain': ['.txt'],
     },
     maxFiles: 1,
@@ -65,13 +64,13 @@ const DSRUpload: React.FC = () => {
       <div className="bg-white rounded-xl shadow p-6 space-y-6">
         {/* Force Selection */}
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Force Unit <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Zone Group <span className="text-red-500">*</span></label>
           <select
             value={selectedForce}
             onChange={(e) => setSelectedForce(e.target.value as ForceType | '')}
             className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500 outline-none"
           >
-            <option value="">Select force unit…</option>
+            <option value="">Select zone group…</option>
             {FORCE_OPTIONS.map((f) => (
               <option key={f.value} value={f.value}>{f.label}</option>
             ))}
@@ -105,7 +104,7 @@ const DSRUpload: React.FC = () => {
               <div>
                 <UploadIcon size={32} className="mx-auto text-gray-400 mb-2" />
                 <p className="text-gray-600 font-medium text-sm">Drag & drop or click to select</p>
-                <p className="text-xs text-gray-400 mt-1">Accepts .docx and .txt files</p>
+                <p className="text-xs text-gray-400 mt-1">Accepts .doc, .docx and .txt files</p>
               </div>
             )}
           </div>

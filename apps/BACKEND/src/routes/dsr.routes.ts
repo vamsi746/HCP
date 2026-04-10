@@ -3,9 +3,9 @@ import path from 'path';
 import { DSR, DSRStatus, ForceType } from '../models';
 import { authenticate } from '../middleware/auth';
 import { requireMinRank } from '../middleware/rbac';
-import { OfficerRank, PoliceStation, SectorOfficer, Sector } from '../models';
+import { OfficerRank, Officer, PoliceStation, SectorOfficer, Sector } from '../models';
 import { upload } from '../middleware/upload';
-import { extractTextFromDocx, parseTaskForceDSR, matchPoliceStation } from '../services/dsr-parser';
+import { extractTextFromDocx, extractTextFromDoc, extractTableRowsFromDocx, parseTaskForceDSR, parseStructuredDSR, matchPoliceStation } from '../services/dsr-parser';
 
 const router = Router();
 
@@ -59,8 +59,8 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
       .populate('zoneId uploadedBy policeStationId')
       .populate('parsedCases.matchedPSId', 'name code')
       .populate('parsedCases.matchedZoneId', 'name code')
-      .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')
-      .lean();
+      .populate('parsedCases.matchedSectorId', 'name')
+      .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')        .populate('parsedCases.matchedSHOId', 'name badgeNumber rank phone')      .lean();
     if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
     res.json({ data: dsr });
   } catch {
@@ -76,7 +76,7 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
 
     const { forceType } = req.body;
     if (!forceType || !Object.values(ForceType).includes(forceType)) {
-      res.status(400).json({ error: 'Invalid forceType. Must be TASK_FORCE, H_FAST, or H_NEW' });
+      res.status(400).json({ error: 'Invalid forceType. Must be CHARMINAR_GOLCONDA, RAJENDRANAGAR_SHAMSHABAD, or KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS' });
       return;
     }
 
@@ -95,40 +95,52 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
     // Parse the document from memory buffer (no file stored on disk)
     try {
       let rawText = '';
+      let tableRows: string[][] = [];
+
       if (ext === '.docx') {
         rawText = await extractTextFromDocx(file.buffer);
+        tableRows = await extractTableRowsFromDocx(file.buffer);
+      } else if (ext === '.doc') {
+        rawText = await extractTextFromDoc(file.buffer);
       } else if (ext === '.txt') {
         rawText = file.buffer.toString('utf8');
       } else {
         dsr.processingStatus = DSRStatus.MANUAL_REVIEW;
-        dsr.missingFields = ['Unsupported file format — only .docx and .txt are supported for auto-parsing'];
+        dsr.missingFields = ['Unsupported file format — only .doc, .docx and .txt are supported for auto-parsing'];
         await dsr.save();
         res.status(201).json({ data: dsr, message: 'File uploaded but format not supported for auto-parsing' });
         return;
       }
 
-      // Parse based on force type
+      // DEBUG: Log raw text to diagnose parsing issues
+      console.log('=== RAW EXTRACTED TEXT (first 3000 chars) ===');
+      console.log(rawText.slice(0, 3000));
+      console.log('=== END RAW TEXT ===');
+
+      // Parse: use structured HTML table parser for .docx, fallback to text-based parser
       let parseResult;
-      if (forceType === ForceType.TASK_FORCE) {
-        parseResult = parseTaskForceDSR(rawText);
+      if (tableRows.length > 0) {
+        console.log('[ROUTE] Using structured HTML table parser with', tableRows.length, 'rows');
+        parseResult = parseStructuredDSR(tableRows, rawText);
       } else {
-        // H_FAST and H_NEW parsers to be added later — for now save raw text
-        dsr.rawText = rawText;
-        dsr.processingStatus = DSRStatus.MANUAL_REVIEW;
-        dsr.missingFields = [`Parser for ${forceType} not yet implemented`];
-        await dsr.save();
-        res.status(201).json({ data: dsr, message: `File uploaded. ${forceType} parser coming soon.` });
-        return;
+        console.log('[ROUTE] Using text-based parser (no HTML table rows)');
+        parseResult = parseTaskForceDSR(rawText);
       }
 
-      // Match police stations and officers for each parsed case
+      // Derive raidedBy from parsed cases' actionTakenBy
+      const uniqueForces = [...new Set(parseResult.cases.map(c => c.actionTakenBy).filter(Boolean))];
+      dsr.raidedBy = uniqueForces.join(', ') || "Commissioner's Task Force";
+
+      // Match police stations, sectors, and officers for each parsed case
       const parsedCases = [];
       for (const c of parseResult.cases) {
         const matchedPSId = await matchPoliceStation(c.policeStation);
 
-        // If PS matched, find the sector SI responsible
         let matchedOfficerId: string | null = null;
         let matchedZoneId: string | null = null;
+        let matchedSectorId: string | null = null;
+        let matchedSHOId: string | null = null;
+
         if (matchedPSId) {
           const ps = await PoliceStation.findById(matchedPSId).populate('circleId').lean() as any;
           if (ps) {
@@ -140,16 +152,104 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
             }
           }
 
-          // Find sectors for this PS then the primary SI
+          // Find the specific sector from the parsed sector name (e.g. "Sector 1")
           const sectors = await Sector.find({ policeStationId: matchedPSId }).lean();
+          if (sectors.length > 0 && c.sector) {
+            // Match by sector name/number
+            const sectorNum = c.sector.match(/\d+/)?.[0];
+            if (sectorNum) {
+              const matched = sectors.find(s => {
+                const dbNum = s.name.match(/\d+/)?.[0];
+                return dbNum === sectorNum;
+              });
+              if (matched) {
+                matchedSectorId = matched._id.toString();
+                // Find the best SI for this sector:
+                // 1st priority: officer whose remarks mention this sector number
+                // 2nd priority: any officer not purely admin/dsi/non-sector
+                // 3rd priority: anyone
+                const sectorOfficers = await SectorOfficer.find({
+                  sectorId: matched._id,
+                  role: 'PRIMARY_SI',
+                  isActive: true,
+                }).lean();
+
+                // 1st: officer whose remarks explicitly mention "Sector N" for the target sector
+                for (const so of sectorOfficers) {
+                  const off = await Officer.findById(so.officerId).select('remarks').lean();
+                  const remarks = (off?.remarks || '');
+                  // Check if remarks contain "Sector N" or "Sec N" or "sector N"
+                  const mentionsSector = new RegExp(`(?:sec(?:tor)?)[\\s\\-–]*${sectorNum}\\b`, 'i').test(remarks);
+                  if (mentionsSector) {
+                    matchedOfficerId = so.officerId.toString();
+                    break;
+                  }
+                }
+                // 2nd: skip pure admin/dsi/non-sector roles (no digit in remarks)
+                if (!matchedOfficerId) {
+                  for (const so of sectorOfficers) {
+                    const off = await Officer.findById(so.officerId).select('remarks').lean();
+                    const remarks = (off?.remarks || '').toLowerCase();
+                    const hasDigit = /\d/.test(remarks);
+                    const isPureNonSector = !hasDigit && (remarks.includes('admin') || remarks.includes('dsi') || remarks.includes('crime') || remarks.includes('general') || remarks.includes('maternity'));
+                    if (!isPureNonSector) {
+                      matchedOfficerId = so.officerId.toString();
+                      break;
+                    }
+                  }
+                }
+                // 3rd: anyone
+                if (!matchedOfficerId && sectorOfficers.length > 0) {
+                  matchedOfficerId = sectorOfficers[0].officerId.toString();
+                }
+              }
+            }
+          }
+
+          // Find SHO: first officer whose remarks include "admin" for this PS
+          // Same logic as mapping page: iterate all sectors, first admin match = SHO
           if (sectors.length > 0) {
-            const sectorOfficer = await SectorOfficer.findOne({
+            const allSOForSHO = await SectorOfficer.find({
               sectorId: { $in: sectors.map((s) => s._id) },
               role: 'PRIMARY_SI',
               isActive: true,
             }).lean();
-            if (sectorOfficer) {
-              matchedOfficerId = sectorOfficer.officerId.toString();
+            for (const so of allSOForSHO) {
+              const off = await Officer.findById(so.officerId).select('remarks').lean();
+              const remarks = (off?.remarks || '').toLowerCase();
+              if (remarks.includes('admin')) {
+                matchedSHOId = so.officerId.toString();
+                break;
+              }
+            }
+          }
+
+          // Fallback: if no sector-specific match, try any sector SI for this PS
+          if (!matchedOfficerId && sectors.length > 0) {
+            const allSectorOfficers = await SectorOfficer.find({
+              sectorId: { $in: sectors.map((s) => s._id) },
+              role: 'PRIMARY_SI',
+              isActive: true,
+            }).lean();
+            for (const so of allSectorOfficers) {
+              const off = await Officer.findById(so.officerId).select('remarks').lean();
+              const remarks = (off?.remarks || '').toLowerCase();
+              const hasDigit = /\d/.test(remarks);
+              const isPureNonSector = !hasDigit && (remarks.includes('admin') || remarks.includes('dsi') || remarks.includes('crime') || remarks.includes('general') || remarks.includes('maternity'));
+              if (!isPureNonSector) {
+                matchedOfficerId = so.officerId.toString();
+                if (!matchedSectorId) {
+                  matchedSectorId = so.sectorId.toString();
+                }
+                break;
+              }
+            }
+            // Fallback: anyone
+            if (!matchedOfficerId && allSectorOfficers.length > 0) {
+              matchedOfficerId = allSectorOfficers[0].officerId.toString();
+              if (!matchedSectorId) {
+                matchedSectorId = allSectorOfficers[0].sectorId.toString();
+              }
             }
           }
         }
@@ -158,16 +258,23 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
           ...c,
           matchedPSId: matchedPSId || undefined,
           matchedZoneId: matchedZoneId || undefined,
+          matchedSectorId: matchedSectorId || undefined,
           matchedOfficerId: matchedOfficerId || undefined,
+          matchedSHOId: matchedSHOId || undefined,
         });
       }
 
       // Update DSR with parsed data
       dsr.rawText = parseResult.rawText;
       dsr.parsedCases = parsedCases as any;
-      dsr.totalCases = parseResult.totalCases;
+      dsr.totalCases = parsedCases.length;
       dsr.processingStatus = DSRStatus.COMPLETED;
       dsr.processedAt = new Date();
+
+      console.log('[ROUTE] parsedCases count:', parsedCases.length, 'totalCases:', parsedCases.length);
+      if (parsedCases.length > 0) {
+        console.log('[ROUTE] first case sample:', JSON.stringify(parsedCases[0]).slice(0, 300));
+      }
 
       if (parseResult.reportDate) {
         const parts = parseResult.reportDate.split(/[-/.]/);
@@ -178,22 +285,27 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
       }
 
       await dsr.save();
+      console.log('[ROUTE] saved successfully, parsedCases in DB:', dsr.parsedCases?.length);
 
       // Re-fetch with populated fields
       const populated = await DSR.findById(dsr._id)
         .populate('parsedCases.matchedPSId', 'name code')
         .populate('parsedCases.matchedZoneId', 'name code')
+        .populate('parsedCases.matchedSectorId', 'name')
         .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')
+        .populate('parsedCases.matchedSHOId', 'name badgeNumber rank phone')
         .lean();
 
       res.status(201).json({ data: populated });
     } catch (parseErr: any) {
+      console.error('[ROUTE] PARSE/MATCH ERROR:', parseErr.message, parseErr.stack);
       dsr.processingStatus = DSRStatus.FAILED;
       dsr.missingFields = [parseErr.message || 'Parse error'];
       await dsr.save();
       res.status(201).json({ data: dsr, error: 'Upload succeeded but parsing failed', details: parseErr.message });
     }
-  } catch {
+  } catch (outerErr: any) {
+    console.error('[ROUTE] OUTER ERROR:', outerErr.message, outerErr.stack);
     res.status(500).json({ error: 'Upload failed' });
   }
 });

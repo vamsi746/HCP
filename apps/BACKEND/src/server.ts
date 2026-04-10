@@ -23,6 +23,7 @@ import appealRoutes from './routes/appeals.routes';
 import zoneRoutes from './routes/zones.routes';
 import reportRoutes from './routes/reports.routes';
 import mappingRoutes from './routes/mapping.routes';
+import memoRoutes from './routes/memos.routes';
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use('/api/appeals', appealRoutes);
 app.use('/api/zones', zoneRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/mapping', mappingRoutes);
+app.use('/api/memos', memoRoutes);
 
 // Health check
 app.get('/api/health', (_req, res) => {

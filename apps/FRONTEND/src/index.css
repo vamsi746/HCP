@@ -5,3 +5,127 @@
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
+
+/* ── TipTap Editor Styles ── */
+.tiptap {
+  outline: none;
+}
+.tiptap p {
+  margin: 0.3em 0;
+}
+.tiptap h1 { font-size: 24pt; font-weight: bold; margin: 0.5em 0 0.3em; }
+.tiptap h2 { font-size: 18pt; font-weight: bold; margin: 0.4em 0 0.2em; }
+.tiptap h3 { font-size: 14pt; font-weight: bold; margin: 0.3em 0 0.2em; }
+.tiptap ul, .tiptap ol {
+  padding-left: 1.5em;
+  margin: 0.3em 0;
+}
+.tiptap ul { list-style-type: disc; }
+.tiptap ol { list-style-type: decimal; }
+.tiptap li { margin: 0.1em 0; }
+.tiptap blockquote {
+  border-left: 3px solid #d1d5db;
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: #6b7280;
+}
+.tiptap hr {
+  border: none;
+  border-top: 1px solid #d1d5db;
+  margin: 1em 0;
+}
+.tiptap a {
+  color: #1a56db;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.tiptap img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ── Word-style resizable image ── */
+.resizable-img-node {
+  line-height: 0;
+  cursor: default;
+}
+/* Inline mode — stays in text flow, allows text & multiple images on same line */
+.resizable-img-node.img-inline {
+  display: inline-flex !important;
+  vertical-align: bottom;
+  margin: 0 2px;
+}
+/* Block alignment modes — take full row */
+.resizable-img-node.img-block {
+  display: flex;
+  margin: 4px 0;
+}
+.resizable-img-inner {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+/* Selection outline — Word-style blue border */
+.img-selected .resizable-img-inner {
+  outline: 2px solid #4f8ef7;
+  outline-offset: 0px;
+}
+.img-resizing {
+  user-select: none !important;
+}
+
+/* 8 resize handles — white squares with blue border, like Word */
+.img-resize-handle {
+  background: #fff;
+  border: 1.5px solid #4f8ef7;
+  border-radius: 1px;
+  z-index: 10;
+  box-shadow: 0 0 2px rgba(0,0,0,0.15);
+  transition: background 0.1s;
+  touch-action: none; /* prevent scroll during pointer drag */
+}
+.img-resize-handle:hover {
+  background: #4f8ef7;
+}
+
+/* Toolbar fade in animation */
+.img-toolbar-anim {
+  animation: img-tb-fade 0.15s ease;
+}
+@keyframes img-tb-fade {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+.tiptap table td,
+.tiptap table th {
+  border: 1px solid #d1d5db;
+  padding: 6px 10px;
+  vertical-align: top;
+  min-width: 60px;
+}
+.tiptap table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+/* Placeholder only when the ENTIRE editor is empty (first child node) */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+.tiptap mark {
+  background-color: #fef08a;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.tiptap sup { font-size: 0.75em; vertical-align: super; }
+.tiptap sub { font-size: 0.75em; vertical-align: sub; }

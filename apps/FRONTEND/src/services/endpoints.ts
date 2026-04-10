@@ -98,6 +98,33 @@ export const updateDSR = (id: string, data: Record<string, unknown>) =>
 export const deleteDSR = (id: string) =>
   api.delete(`/dsr/${id}`);
 
+// Memos
+export const generateMemo = (data: { dsrId: string; caseId: string }) =>
+  api.post('/memos/generate', data);
+
+export const getMemos = (params?: Record<string, unknown>) =>
+  api.get('/memos', { params });
+
+export const getMemo = (id: string) => api.get(`/memos/${id}`);
+
+export const updateMemo = (id: string, data: Record<string, unknown>) =>
+  api.put(`/memos/${id}`, data);
+
+export const submitMemoForReview = (id: string) =>
+  api.put(`/memos/${id}/submit`);
+
+export const assignMemoRecipient = (id: string, data: { recipientType: string; recipientId: string }) =>
+  api.put(`/memos/${id}/assign`, data);
+
+export const approveMemo = (id: string) =>
+  api.put(`/memos/${id}/approve`);
+
+export const deleteMemo = (id: string) =>
+  api.delete(`/memos/${id}`);
+
+export const getCaseOfficers = (psId: string) =>
+  api.get(`/memos/case-officers/${psId}`);
+
 // Zones
 export const getZones = () => api.get('/zones');
 export const getHierarchy = () => api.get('/zones/hierarchy');
