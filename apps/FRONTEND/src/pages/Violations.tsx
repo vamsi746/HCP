@@ -70,53 +70,53 @@ const Violations: React.FC = () => {
       case 'HIGH': return 'bg-orange-100 text-orange-700';
       case 'MEDIUM': return 'bg-yellow-100 text-yellow-700';
       case 'LOW': return 'bg-green-100 text-green-700';
-      default: return 'bg-gray-100 text-gray-700';
+      default: return 'bg-slate-100 text-slate-700';
     }
   };
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Violations</h1>
-        <p className="text-sm text-gray-500 mt-1">Auto-generated when Task Force detects activity in an SI's assigned area</p>
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider">Violations</h1>
+        <p className="text-[11px] text-blue-200 mt-1">Auto-generated when Task Force detects activity in an SI's assigned area</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow overflow-hidden">
+      <div className="border border-slate-200 bg-white shadow overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr className="text-left text-gray-600">
-              <th className="px-4 py-3 font-semibold">Date</th>
-              <th className="px-4 py-3 font-semibold">Officer</th>
-              <th className="px-4 py-3 font-semibold">Badge #</th>
-              <th className="px-4 py-3 font-semibold">Violation Type</th>
-              <th className="px-4 py-3 font-semibold">Severity</th>
-              <th className="px-4 py-3 font-semibold">Description</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
-              <th className="px-4 py-3 font-semibold">Actions</th>
+          <thead className="bg-gradient-to-r from-[#1a2a4a] to-[#2d4a6f]">
+            <tr className="text-left text-white">
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Date</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Officer</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Badge #</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Violation Type</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Severity</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Description</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Status</th>
+              <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400">Loading…</td></tr>
             ) : violations.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No violations found.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-400">No violations found.</td></tr>
             ) : (
-              violations.map((v) => (
-                <tr key={v._id} className="border-t hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-600">{new Date(v.date || v.createdAt).toLocaleDateString('en-IN')}</td>
+              violations.map((v, idx) => (
+                <tr key={v._id} className={`border-t border-slate-200 hover:bg-blue-50/60 ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                  <td className="px-4 py-3 text-slate-600">{new Date(v.date || v.createdAt).toLocaleDateString('en-IN')}</td>
                   <td className="px-4 py-3 font-medium">{v.officer?.name || '—'}</td>
-                  <td className="px-4 py-3 font-mono text-gray-500">{v.officer?.badgeNumber || '—'}</td>
+                  <td className="px-4 py-3 font-mono text-slate-500">{v.officer?.badgeNumber || '—'}</td>
                   <td className="px-4 py-3">
-                    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+                    <span className="inline-block px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-700">
                       {v.violationType.replace(/_/g, ' ')}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityStyle(v.severity)}`}>
+                    <span className={`inline-block px-2 py-0.5 text-xs font-medium ${getSeverityStyle(v.severity)}`}>
                       {v.severity}
                     </span>
                   </td>
-                  <td className="px-4 py-3 max-w-xs truncate text-gray-500">{v.description || '—'}</td>
+                  <td className="px-4 py-3 max-w-xs truncate text-slate-500">{v.description || '—'}</td>
                   <td className="px-4 py-3">
                     {v.isExempted ? (
                       <span className="text-green-600 text-xs font-medium">Exempted</span>
@@ -131,10 +131,10 @@ const Violations: React.FC = () => {
                           Exempt
                         </button>
                       )}
-                      <button onClick={() => openEdit(v)} className="text-gray-500 hover:text-blue-600" title="Edit">
+                      <button onClick={() => openEdit(v)} className="text-slate-500 hover:text-blue-600" title="Edit">
                         <Pencil size={14} />
                       </button>
-                      <button onClick={() => setDeleteItem(v)} className="text-gray-500 hover:text-red-600" title="Delete">
+                      <button onClick={() => setDeleteItem(v)} className="text-slate-500 hover:text-red-600" title="Delete">
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -148,50 +148,52 @@ const Violations: React.FC = () => {
 
       {pagination.total > 20 && (
         <div className="flex justify-center gap-2 mt-4">
-          <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="px-3 py-1 border rounded disabled:opacity-50 text-sm">Prev</button>
-          <span className="px-3 py-1 text-sm text-gray-500">Page {page}</span>
-          <button disabled={page * 20 >= pagination.total} onClick={() => setPage(page + 1)} className="px-3 py-1 border rounded disabled:opacity-50 text-sm">Next</button>
+          <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="px-3 py-1 border border-slate-300 disabled:opacity-50 text-sm">Prev</button>
+          <span className="px-3 py-1 text-sm text-slate-500">Page {page}</span>
+          <button disabled={page * 20 >= pagination.total} onClick={() => setPage(page + 1)} className="px-3 py-1 border border-slate-300 disabled:opacity-50 text-sm">Next</button>
         </div>
       )}
 
       {/* Edit Modal */}
       {editItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-gray-800">Edit Violation</h2>
-              <button onClick={() => setEditItem(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+          <div className="bg-white shadow-xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">Edit Violation</h2>
+              <button onClick={() => setEditItem(null)} className="text-blue-200 hover:text-white"><X size={20} /></button>
             </div>
+            <div className="p-6">
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Violation Type</label>
-                <select value={editForm.violationType} onChange={(e) => setEditForm({ ...editForm, violationType: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Violation Type</label>
+                <select value={editForm.violationType} onChange={(e) => setEditForm({ ...editForm, violationType: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm">
                   {VIOLATION_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Severity</label>
-                <select value={editForm.severity} onChange={(e) => setEditForm({ ...editForm, severity: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Severity</label>
+                <select value={editForm.severity} onChange={(e) => setEditForm({ ...editForm, severity: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm">
                   {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                <select value={editForm.isExempted} onChange={(e) => setEditForm({ ...editForm, isExempted: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Status</label>
+                <select value={editForm.isExempted} onChange={(e) => setEditForm({ ...editForm, isExempted: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm">
                   <option value="false">Active</option>
                   <option value="true">Exempted</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm h-20 resize-none" />
+                <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Description</label>
+                <textarea value={editForm.description} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm h-20 resize-none" />
               </div>
             </div>
             <div className="flex gap-3 mt-5">
-              <button onClick={() => setEditItem(null)} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
-              <button onClick={() => updateMutation.mutate({ id: editItem._id, data: { ...editForm, isExempted: editForm.isExempted === 'true' } })} disabled={updateMutation.isPending} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+              <button onClick={() => setEditItem(null)} className="flex-1 border border-slate-300 text-slate-700 py-2 text-sm hover:bg-slate-50">Cancel</button>
+              <button onClick={() => updateMutation.mutate({ id: editItem._id, data: { ...editForm, isExempted: editForm.isExempted === 'true' } })} disabled={updateMutation.isPending} className="flex-1 bg-indigo-600 text-white py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
                 {updateMutation.isPending ? 'Saving…' : 'Save Changes'}
               </button>
+            </div>
             </div>
           </div>
         </div>
@@ -200,19 +202,23 @@ const Violations: React.FC = () => {
       {/* Delete Confirmation */}
       {deleteItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6 text-center">
-            <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
-              <Trash2 className="text-red-600" size={24} />
+          <div className="bg-white shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Delete Violation?</h3>
             </div>
-            <h3 className="text-lg font-bold text-gray-800 mb-2">Delete Violation?</h3>
-            <p className="text-sm text-gray-500 mb-5">
-              This will permanently delete the {deleteItem.violationType.replace(/_/g, ' ')} violation for {deleteItem.officer?.name || 'this officer'}. This action cannot be undone.
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setDeleteItem(null)} className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg text-sm hover:bg-gray-50">Cancel</button>
-              <button onClick={() => deleteMutation.mutate(deleteItem._id)} disabled={deleteMutation.isPending} className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50">
-                {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
-              </button>
+            <div className="p-6 text-center">
+              <div className="mx-auto w-12 h-12 bg-red-100 flex items-center justify-center mb-4">
+                <Trash2 className="text-red-600" size={24} />
+              </div>
+              <p className="text-sm text-slate-500 mb-5">
+                This will permanently delete the {deleteItem.violationType.replace(/_/g, ' ')} violation for {deleteItem.officer?.name || 'this officer'}. This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setDeleteItem(null)} className="flex-1 border border-slate-300 text-slate-700 py-2 text-sm hover:bg-slate-50">Cancel</button>
+                <button onClick={() => deleteMutation.mutate(deleteItem._id)} disabled={deleteMutation.isPending} className="flex-1 bg-indigo-600 text-white py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+                  {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -287,19 +287,20 @@ const Mapping: React.FC = () => {
     setDeleteConfirm(null);
   };
 
-  const inputCls = 'border border-gray-300 rounded px-2 py-1 text-sm w-full focus:outline-none focus:ring-1 focus:ring-blue-400';
+  const inputCls = 'border border-slate-300 px-2 py-1 text-[13px] w-full focus:outline-none focus:ring-1 focus:ring-slate-400';
 
   if (isLoading)
-    return <div className="flex items-center justify-center p-12 text-gray-400">Loading zone data…</div>;
+    return <div className="flex items-center justify-center p-12 text-slate-400 text-[13px] font-bold uppercase tracking-wider">Loading zone data…</div>;
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Zone → Area → Officers Mapping</h1>
-        <p className="text-sm text-gray-500 mt-1">Click on a zone to view, add, edit, or delete officers</p>
+      {/* Official header */}
+      <div className="bg-slate-800 -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6">
+        <h1 className="text-[22px] font-bold text-white tracking-wide">ZONE → AREA → OFFICERS MAPPING</h1>
+        <p className="text-slate-400 text-[12px] mt-0.5 font-medium tracking-wider uppercase">Hyderabad City Police — Commissioner's Task Force</p>
       </div>
 
-      {/* Zone Buttons Grid */}
+      {/* Zone Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {data?.map((zone) => {
           const stats = getZoneStats(zone);
@@ -308,18 +309,17 @@ const Mapping: React.FC = () => {
             <button
               key={zone._id}
               onClick={() => openZone(zone)}
-              className={`relative overflow-hidden rounded-xl border-2 ${color.border} ${color.light} p-5 text-left transition-all hover:shadow-lg hover:scale-[1.02] active:scale-[0.98]`}
+              className="border border-slate-300 bg-white p-4 text-left transition-all hover:shadow-md hover:border-slate-400 active:bg-slate-50"
             >
-              <div className={`absolute top-0 right-0 w-20 h-20 ${color.bg} opacity-10 rounded-bl-full`} />
-              <div className="flex items-start gap-3">
-                <div className={`w-10 h-10 rounded-lg ${color.bg} text-white flex items-center justify-center font-bold text-sm flex-shrink-0`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 ${color.bg} text-white flex items-center justify-center font-bold text-[11px] flex-shrink-0`}>
                   {zone.code}
                 </div>
                 <div>
-                  <h3 className={`font-bold ${color.text}`}>{zone.name}</h3>
-                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                    <span className="flex items-center gap-1"><Building2 size={12} />{stats.stations} Stations</span>
-                    <span className="flex items-center gap-1"><Users size={12} />{stats.officers} Officers</span>
+                  <h3 className="font-bold text-slate-800 text-[14px]">{zone.name}</h3>
+                  <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-500">
+                    <span className="flex items-center gap-1"><Building2 size={11} />{stats.stations} Stations</span>
+                    <span className="flex items-center gap-1"><Users size={11} />{stats.officers} Officers</span>
                   </div>
                 </div>
               </div>
@@ -330,9 +330,9 @@ const Mapping: React.FC = () => {
 
       {/* Draggable Modal */}
       {selectedZone && (
-        <div className="fixed inset-0 z-50 bg-black/40" onClick={() => setSelectedZone(null)}>
+        <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setSelectedZone(null)}>
           <div
-            className="absolute bg-white rounded-2xl shadow-2xl flex flex-col"
+            className="absolute bg-white border border-slate-300 shadow-2xl flex flex-col"
             style={{
               left: `calc(50% + ${pos.x}px)`,
               top: `calc(50% + ${pos.y}px)`,
@@ -347,35 +347,40 @@ const Mapping: React.FC = () => {
             {(() => {
               const color = ZONE_COLORS[selectedZone.code] || ZONE_COLORS.CZ;
               return (
-                <div className={`${color.bg} text-white rounded-t-2xl flex-shrink-0`}>
+                <div className="bg-slate-800 text-white flex-shrink-0">
                   <div className="flex items-center justify-center py-1.5 cursor-grab active:cursor-grabbing select-none" onMouseDown={onMouseDown}>
-                    <GripHorizontal size={18} className="opacity-50" />
+                    <GripHorizontal size={18} className="opacity-40" />
                   </div>
                   <div className="px-6 pb-4 flex items-center justify-between">
-                    <div>
-                      <h2 className="text-xl font-bold">{selectedZone.name} SIs Information</h2>
-                      <p className="text-sm opacity-80 mt-0.5">
-                        {flatOfficers.length} Officers across {getZoneStats(selectedZone).stations} Police Stations
-                      </p>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 ${color.bg} text-white flex items-center justify-center font-bold text-[11px] flex-shrink-0`}>
+                        {selectedZone.code}
+                      </div>
+                      <div>
+                        <h2 className="text-[18px] font-bold uppercase tracking-wide">{selectedZone.name} — SIs Information</h2>
+                        <p className="text-[12px] text-slate-400 mt-0.5 font-medium tracking-wider uppercase">
+                          {flatOfficers.length} Officers across {getZoneStats(selectedZone).stations} Police Stations
+                        </p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="relative">
-                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/60" />
+                        <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/50" />
                         <input
                           type="text"
                           placeholder="Search…"
                           value={search}
                           onChange={(e) => setSearch(e.target.value)}
-                          className="bg-white/20 border border-white/30 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/40 w-44"
+                          className="bg-white/10 border border-white/20 pl-8 pr-3 py-1.5 text-[12px] text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-white/30 w-44"
                         />
                       </div>
-                      <button onClick={() => { setAddingRow(true); setEditingId(null); }} className="p-1.5 rounded-lg hover:bg-white/20 transition" title="Add Officer">
+                      <button onClick={() => { setAddingRow(true); setEditingId(null); }} className="p-1.5 hover:bg-white/10 transition" title="Add Officer">
                         <Plus size={18} />
                       </button>
-                      <button onClick={downloadCSV} className="p-1.5 rounded-lg hover:bg-white/20 transition" title="Download CSV">
+                      <button onClick={downloadCSV} className="p-1.5 hover:bg-white/10 transition" title="Download CSV">
                         <Download size={18} />
                       </button>
-                      <button onClick={() => setSelectedZone(null)} className="p-1.5 rounded-lg hover:bg-white/20 transition" title="Close">
+                      <button onClick={() => setSelectedZone(null)} className="p-1.5 hover:bg-white/10 transition" title="Close">
                         <X size={18} />
                       </button>
                     </div>
@@ -386,33 +391,33 @@ const Mapping: React.FC = () => {
 
             {/* Table */}
             <div className="overflow-auto flex-1">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-100 sticky top-0 z-10">
+              <table className="w-full text-[13px]">
+                <thead className="bg-slate-700 text-white sticky top-0 z-10">
                   <tr>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">S.No</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Police Station</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">SHO Name</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Sector</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Officer Name</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Rank</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Phone Number</th>
-                    <th className="text-left px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Batch</th>
-                    <th className="text-center px-3 py-3 font-semibold text-gray-600 whitespace-nowrap">Actions</th>
+                    <th className="text-center px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap w-[50px]">S.No</th>
+                    <th className="text-left px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Police Station</th>
+                    <th className="text-left px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">SHO Name</th>
+                    <th className="text-left px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Sector</th>
+                    <th className="text-left px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Officer Name</th>
+                    <th className="text-center px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Rank</th>
+                    <th className="text-left px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Phone Number</th>
+                    <th className="text-center px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Batch</th>
+                    <th className="text-center px-3 py-3 font-bold text-[10px] uppercase tracking-wider whitespace-nowrap">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {/* Add Row */}
                   {addingRow && (
-                    <tr className="bg-green-50">
-                      <td className="px-3 py-2 text-gray-400 text-xs">NEW</td>
+                    <tr className="bg-emerald-50 border-b border-slate-200">
+                      <td className="px-3 py-2 text-slate-400 text-[11px] font-bold text-center">NEW</td>
                       <td className="px-3 py-2">
                         <select value={addForm.sectorId} onChange={(e) => setAddForm({ ...addForm, sectorId: e.target.value })} className={inputCls}>
                           <option value="">Select station / sector…</option>
                           {zoneSectors.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
                         </select>
                       </td>
-                      <td className="px-3 py-2 text-gray-400 text-xs">Auto</td>
-                      <td className="px-3 py-2 text-gray-400 text-xs">Auto</td>
+                      <td className="px-3 py-2 text-slate-400 text-[11px]">Auto</td>
+                      <td className="px-3 py-2 text-slate-400 text-[11px]">Auto</td>
                       <td className="px-3 py-2"><input className={inputCls} placeholder="Name" value={addForm.name} onChange={(e) => setAddForm({ ...addForm, name: e.target.value })} /></td>
                       <td className="px-3 py-2">
                         <select className={inputCls} value={addForm.rank} onChange={(e) => setAddForm({ ...addForm, rank: e.target.value })}>
@@ -423,10 +428,10 @@ const Mapping: React.FC = () => {
                       <td className="px-3 py-2"><input className={inputCls} placeholder="Batch" value={addForm.batch} onChange={(e) => setAddForm({ ...addForm, batch: e.target.value })} /></td>
                       <td className="px-3 py-2 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          <button onClick={saveAdd} disabled={saving || !addForm.name || !addForm.phone || !addForm.sectorId} className="p-1 rounded hover:bg-green-200 text-green-700 disabled:opacity-40" title="Save">
+                          <button onClick={saveAdd} disabled={saving || !addForm.name || !addForm.phone || !addForm.sectorId} className="p-1.5 text-emerald-600 hover:bg-emerald-100 disabled:opacity-40" title="Save">
                             <Save size={15} />
                           </button>
-                          <button onClick={() => { setAddingRow(false); setAddForm({ ...emptyForm, sectorId: '' }); }} className="p-1 rounded hover:bg-gray-200 text-gray-500" title="Cancel">
+                          <button onClick={() => { setAddingRow(false); setAddForm({ ...emptyForm, sectorId: '' }); }} className="p-1.5 text-slate-400 hover:bg-slate-100" title="Cancel">
                             <Ban size={15} />
                           </button>
                         </div>
@@ -447,8 +452,8 @@ const Mapping: React.FC = () => {
 
                       if (isEditing) {
                         return (
-                          <tr key={off._id} className="bg-blue-50">
-                            <td className="px-3 py-2 text-gray-500 font-mono text-xs">{idx + 1}</td>
+                          <tr key={off._id} className="bg-blue-50 border-b border-slate-200">
+                            <td className="px-3 py-2 text-slate-500 font-bold text-center">{idx + 1}</td>
                             <td colSpan={3} className="px-3 py-2">
                               <select className={inputCls} value={editForm.sectorId} onChange={(e) => setEditForm({ ...editForm, sectorId: e.target.value })}>
                                 {zoneSectors.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
@@ -464,10 +469,10 @@ const Mapping: React.FC = () => {
                             <td className="px-3 py-2"><input className={inputCls} value={editForm.batch} onChange={(e) => setEditForm({ ...editForm, batch: e.target.value })} /></td>
                             <td className="px-3 py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
-                                <button onClick={saveEdit} disabled={saving} className="p-1 rounded hover:bg-green-200 text-green-700 disabled:opacity-40" title="Save">
+                                <button onClick={saveEdit} disabled={saving} className="p-1.5 text-emerald-600 hover:bg-emerald-100 disabled:opacity-40" title="Save">
                                   <Save size={15} />
                                 </button>
-                                <button onClick={() => setEditingId(null)} className="p-1 rounded hover:bg-gray-200 text-gray-500" title="Cancel">
+                                <button onClick={() => setEditingId(null)} className="p-1.5 text-slate-400 hover:bg-slate-100" title="Cancel">
                                   <Ban size={15} />
                                 </button>
                               </div>
@@ -478,17 +483,17 @@ const Mapping: React.FC = () => {
 
                       if (isDeleting) {
                         return (
-                          <tr key={off._id} className="bg-red-50">
-                            <td className="px-3 py-2 text-gray-500 font-mono text-xs">{idx + 1}</td>
+                          <tr key={off._id} className="bg-red-50 border-b border-slate-200">
+                            <td className="px-3 py-2 text-slate-500 font-bold text-center">{idx + 1}</td>
                             <td colSpan={7} className="px-3 py-2">
-                              <span className="text-red-700 font-medium">Delete <strong>{off.name}</strong> ({off.badgeNumber})? This cannot be undone.</span>
+                              <span className="text-red-700 text-[13px] font-medium">Delete <strong>{off.name}</strong> ({off.badgeNumber})? This cannot be undone.</span>
                             </td>
                             <td className="px-3 py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
-                                <button onClick={() => confirmDelete(off._id)} disabled={saving} className="px-2 py-1 rounded bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-40">
-                                  Yes, Delete
+                                <button onClick={() => confirmDelete(off._id)} disabled={saving} className="px-3 py-1 bg-red-700 text-white text-[11px] font-bold uppercase tracking-wider hover:bg-red-800 disabled:opacity-40">
+                                  Delete
                                 </button>
-                                <button onClick={() => setDeleteConfirm(null)} className="px-2 py-1 rounded bg-gray-200 text-gray-700 text-xs font-medium hover:bg-gray-300">
+                                <button onClick={() => setDeleteConfirm(null)} className="px-3 py-1 border border-slate-300 bg-white text-slate-700 text-[11px] font-bold uppercase tracking-wider hover:bg-slate-50">
                                   Cancel
                                 </button>
                               </div>
@@ -500,44 +505,43 @@ const Mapping: React.FC = () => {
                       const isHighlighted = off.rank === 'WSI' || String(off.remarks).toLowerCase().includes('admin');
 
                       return (
-                        <tr key={off._id} className={`hover:bg-blue-50/50 transition-colors ${isHighlighted ? 'bg-yellow-50' : ''}`}>
-                          <td className="px-3 py-2.5 text-gray-500 font-mono text-xs">{idx + 1}</td>
+                        <tr key={off._id} className={`border-b border-slate-200 transition-colors hover:bg-blue-50/50 ${
+                          isHighlighted ? 'bg-amber-50/50' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
+                        }`}>
+                          <td className="px-3 py-2.5 text-slate-500 font-bold text-center">{idx + 1}</td>
                           <td className="px-3 py-2.5">
-                            <span className="inline-flex items-center gap-1.5">
-                              <MapPin size={12} className="text-red-400 flex-shrink-0" />
-                              <span className="font-medium text-gray-700">{off.stationName}</span>
-                            </span>
+                            <span className="font-bold text-slate-800">{off.stationName}</span>
                           </td>
-                          <td className="px-3 py-2.5 text-gray-700">{off.shoName}</td>
+                          <td className="px-3 py-2.5 text-slate-700">{off.shoName}</td>
                           <td className="px-3 py-2.5">
                             {(() => {
                               const r = (off.remarks || '').toLowerCase();
-                              const cls = r.includes('admin') ? 'bg-yellow-100 text-yellow-800' :
-                                r.includes('dsi') ? 'bg-orange-100 text-orange-700' :
-                                r.includes('maternity') || r.includes('sick') ? 'bg-red-100 text-red-600' :
-                                r.includes('crime') || r.includes('general') ? 'bg-purple-100 text-purple-700' :
-                                'bg-blue-100 text-blue-700';
-                              return <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${cls}`}>{off.remarks || off.sectorName}</span>;
+                              const cls = r.includes('admin') ? 'bg-amber-600 text-white' :
+                                r.includes('dsi') ? 'bg-orange-600 text-white' :
+                                r.includes('maternity') || r.includes('sick') ? 'bg-red-600 text-white' :
+                                r.includes('crime') || r.includes('general') ? 'bg-purple-700 text-white' :
+                                'bg-blue-700 text-white';
+                              return <span className={`inline-block px-2.5 py-0.5 text-[11px] font-bold ${cls}`}>{off.remarks || off.sectorName}</span>;
                             })()}
                           </td>
-                          <td className="px-3 py-2.5 font-medium text-gray-800">{off.name}</td>
-                          <td className="px-3 py-2.5">
-                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
-                              off.rank === 'WSI' ? 'bg-pink-100 text-pink-700' :
-                              off.rank === 'PSI' ? 'bg-teal-100 text-teal-700' :
-                              'bg-gray-100 text-gray-700'
+                          <td className="px-3 py-2.5 font-bold text-slate-800">{off.name}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`inline-block px-2.5 py-0.5 text-[11px] font-bold ${
+                              off.rank === 'WSI' ? 'bg-pink-700 text-white' :
+                              off.rank === 'PSI' ? 'bg-teal-700 text-white' :
+                              'bg-slate-600 text-white'
                             }`}>
                               {off.rank}
                             </span>
                           </td>
-                          <td className="px-3 py-2.5 text-gray-600 font-mono text-xs">{off.phone}</td>
-                          <td className="px-3 py-2.5 text-gray-600">{off.batch || '—'}</td>
+                          <td className="px-3 py-2.5 text-slate-600 font-mono text-[12px]">{off.phone}</td>
+                          <td className="px-3 py-2.5 text-slate-700 font-bold text-center">{off.batch || '—'}</td>
                           <td className="px-3 py-2.5 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <button onClick={() => startEdit(off)} className="p-1 rounded hover:bg-blue-100 text-blue-600" title="Edit">
+                              <button onClick={() => startEdit(off)} className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors" title="Edit">
                                 <Pencil size={14} />
                               </button>
-                              <button onClick={() => { setDeleteConfirm(off._id); setEditingId(null); }} className="p-1 rounded hover:bg-red-100 text-red-500" title="Delete">
+                              <button onClick={() => { setDeleteConfirm(off._id); setEditingId(null); }} className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 transition-colors" title="Delete">
                                 <Trash2 size={14} />
                               </button>
                             </div>
@@ -551,28 +555,22 @@ const Mapping: React.FC = () => {
             </div>
 
             {/* Modal Footer */}
-            <div className="border-t px-6 py-3 flex items-center justify-between text-sm text-gray-500 flex-shrink-0">
-              <span>
+            <div className="border-t border-slate-300 px-6 py-3 flex items-center justify-between flex-shrink-0 bg-slate-50">
+              <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
                 {search ? `${filteredOfficers.length} of ${flatOfficers.length} officers` : `Total: ${flatOfficers.length} officers`}
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => { setAddingRow(true); setEditingId(null); }}
-                  className="px-4 py-1.5 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 font-medium transition flex items-center gap-1.5"
+                  className="px-4 py-1.5 bg-slate-800 text-white text-[12px] font-bold uppercase tracking-wider hover:bg-slate-900 transition flex items-center gap-1.5"
                 >
                   <Plus size={14} /> Add Officer
                 </button>
                 <button
                   onClick={downloadCSV}
-                  className="px-4 py-1.5 rounded-lg bg-green-100 hover:bg-green-200 text-green-700 font-medium transition flex items-center gap-1.5"
+                  className="px-4 py-1.5 border border-slate-300 bg-white text-slate-700 text-[12px] font-bold uppercase tracking-wider hover:bg-slate-50 transition flex items-center gap-1.5"
                 >
                   <Download size={14} /> Download CSV
-                </button>
-                <button
-                  onClick={() => setSelectedZone(null)}
-                  className="px-4 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition"
-                >
-                  Close
                 </button>
               </div>
             </div>

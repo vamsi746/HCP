@@ -17,8 +17,8 @@ const OfficerDetail: React.FC = () => {
     enabled: !!id,
   });
 
-  if (isLoading) return <div className="text-gray-400">Loading…</div>;
-  if (!data) return <div className="text-gray-400">Officer not found.</div>;
+  if (isLoading) return <div className="text-slate-400 p-8">Loading…</div>;
+  if (!data) return <div className="text-slate-400 p-8">Officer not found.</div>;
 
   const fields = [
     { label: 'Badge Number', value: data.badgeNumber },
@@ -30,22 +30,25 @@ const OfficerDetail: React.FC = () => {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Officer Details</h1>
-      <div className="bg-white rounded-xl shadow p-6 max-w-2xl">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 bg-primary-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider">Officer Details</h1>
+        <p className="text-[11px] text-blue-200 mt-0.5">{data.name} — {data.rank}</p>
+      </div>
+      <div className="bg-white border border-slate-200 max-w-2xl">
+        <div className="bg-indigo-500 px-5 py-2.5 flex items-center gap-3">
+          <div className="w-9 h-9 bg-white/20 flex items-center justify-center text-white font-bold text-sm">
             {data.name.charAt(0)}
           </div>
           <div>
-            <h2 className="text-lg font-semibold">{data.name}</h2>
+            <h2 className="text-sm font-bold text-white">{data.name}</h2>
             <StatusBadge status={data.isActive ? 'ACTIVE' : 'INACTIVE'} />
           </div>
         </div>
-        <dl className="grid grid-cols-2 gap-4">
+        <dl className="grid grid-cols-2 gap-4 p-5">
           {fields.map((f) => (
             <div key={f.label}>
-              <dt className="text-xs text-gray-500 uppercase">{f.label}</dt>
-              <dd className="font-medium">{f.value}</dd>
+              <dt className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{f.label}</dt>
+              <dd className="font-semibold text-slate-800 mt-0.5">{f.value || '—'}</dd>
             </div>
           ))}
         </dl>

@@ -2,6 +2,70 @@ import mammoth from 'mammoth';
 // @ts-ignore — no type declarations for word-extractor
 import WordExtractor from 'word-extractor';
 import { PoliceStation } from '../../models';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Convert a .doc buffer to .docx buffer using local converter (Word COM or LibreOffice).
+ * Returns the .docx buffer or null if conversion fails.
+ */
+export async function convertDocToDocx(docBuffer: Buffer): Promise<Buffer | null> {
+  const tmpDir = os.tmpdir();
+  const baseName = `hcp_convert_${Date.now()}`;
+  const inputPath = path.join(tmpDir, `${baseName}.doc`);
+  const outputPath = path.join(tmpDir, `${baseName}.docx`);
+
+  try {
+    fs.writeFileSync(inputPath, docBuffer);
+
+    // Try MS Word COM via PowerShell (Windows)
+    if (process.platform === 'win32') {
+      try {
+        const psScript = `
+$word = New-Object -ComObject Word.Application
+$word.Visible = $false
+$word.DisplayAlerts = 0
+try {
+  $doc = $word.Documents.Open('${inputPath.replace(/\\/g, '\\\\')}')
+  $doc.SaveAs2('${outputPath.replace(/\\/g, '\\\\')}', 16)
+  $doc.Close()
+} finally {
+  $word.Quit()
+  [System.Runtime.Interopservices.Marshal]::ReleaseComObject($word) | Out-Null
+}
+`;
+        await execFileAsync('powershell', ['-NoProfile', '-Command', psScript], { timeout: 30000 });
+        if (fs.existsSync(outputPath)) {
+          const docxBuf = fs.readFileSync(outputPath);
+          return docxBuf;
+        }
+      } catch (wordErr: any) {
+        console.log('[DOC-CONVERT] MS Word conversion failed, trying LibreOffice:', wordErr.message);
+      }
+    }
+
+    // Fallback: LibreOffice
+    try {
+      const libre = require('libreoffice-convert');
+      const convertAsync = promisify(libre.convert);
+      const docxBuf = await convertAsync(docBuffer, '.docx', undefined);
+      return docxBuf;
+    } catch (libreErr: any) {
+      console.log('[DOC-CONVERT] LibreOffice conversion failed:', libreErr.message);
+    }
+
+    return null;
+  } finally {
+    // Cleanup temp files
+    try { if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath); } catch {}
+    try { if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath); } catch {}
+  }
+}
 
 export interface ExtractedLocation {
   type: 'ps_reference' | 'residential' | 'incident_area';
@@ -46,6 +110,12 @@ export interface DSRParseResult {
 
 export async function extractTextFromDocx(buffer: Buffer): Promise<string> {
   const result = await mammoth.extractRawText({ buffer });
+  return result.value;
+}
+
+/** Full HTML conversion preserving document structure (tables, headings, lists, etc.) */
+export async function extractFullHtmlFromDocx(buffer: Buffer): Promise<string> {
+  const result = await mammoth.convertToHtml({ buffer });
   return result.value;
 }
 
@@ -125,15 +195,19 @@ const ZONE_RE = new RegExp(
 // ── Main parser ──────────────────────────────────────────────────────────────
 
 export function parseTaskForceDSR(rawText: string): DSRParseResult {
-  // Extract report date
+  // Extract report date (raid date)
   let reportDate = '';
-  const dateMatch = rawText.match(/for\s+the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i);
-  if (dateMatch) {
-    reportDate = dateMatch[1];
-  } else {
-    const datedMatch = rawText.match(/Dated:\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i);
-    if (datedMatch) reportDate = datedMatch[1];
+  // Try "for the day DD-MM-YYYY" first (raid date), then "the day DD-MM-YYYY", then "Dated: DD-MM-YYYY"
+  const datePatterns = [
+    /for\s+the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+    /the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+    /Dated[:\s]+\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+  ];
+  for (const pat of datePatterns) {
+    const m = rawText.match(pat);
+    if (m) { reportDate = m[1]; break; }
   }
+  console.log('[PARSER] Extracted reportDate:', reportDate || '(none)');
 
   // Force description and zone coverage
   let forceDescription = '';
@@ -177,15 +251,18 @@ export function parseTaskForceDSR(rawText: string): DSRParseResult {
  *   10: Absconding Accused
  */
 export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseResult {
-  // Extract report date from raw text
+  // Extract report date (raid date) from raw text
   let reportDate = '';
-  const dateMatch = rawText.match(/for\s+the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i);
-  if (dateMatch) {
-    reportDate = dateMatch[1];
-  } else {
-    const datedMatch = rawText.match(/Dated:\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i);
-    if (datedMatch) reportDate = datedMatch[1];
+  const datePatterns = [
+    /for\s+the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+    /the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+    /Dated[:\s]+\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+  ];
+  for (const pat of datePatterns) {
+    const m = rawText.match(pat);
+    if (m) { reportDate = m[1]; break; }
   }
+  console.log('[PARSER-STRUCTURED] Extracted reportDate:', reportDate || '(none)');
 
   let forceDescription = '';
   let zoneCoverage = '';
@@ -195,31 +272,63 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
     zoneCoverage = forceMatch[1].trim();
   }
 
-  // Auto-detect column count from header row
+  // Find the main DSR table header row and its column count
   let colOffset = 0;
-  for (const row of rows) {
-    const joined = row.map(c => c.toLowerCase()).join('|');
-    if (joined.includes('sl') && (joined.includes('zone') || joined.includes('p.s'))) {
-      console.log('[PARSER-STRUCTURED] Header row detected with', row.length, 'columns:', row.map(c => c.slice(0, 30)));
-      // If Sl.No is in its own column (11+ cols), offset = 0; if merged with zone (10 cols), offset = -1
-      if (row.length >= 11) {
+  const isHeaderRow = (joined: string) => (joined.includes('sl') || /\bsi[.\s]/.test(joined)) && (joined.includes('zone') || joined.includes('p.s'));
+
+  let headerIdx = -1;
+  let expectedCols = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const joined = rows[i].map(c => c.toLowerCase()).join('|');
+    if (isHeaderRow(joined)) {
+      headerIdx = i;
+      expectedCols = rows[i].length;
+      console.log('[PARSER-STRUCTURED] Header row at index', i, 'with', expectedCols, 'columns:', rows[i].map(c => c.slice(0, 30)));
+      if (expectedCols >= 11) {
         colOffset = 0;
-      } else if (row.length >= 10) {
-        colOffset = -1; // Sl.No merged with zone column
+      } else if (expectedCols >= 10) {
+        colOffset = -1;
       }
       break;
     }
   }
 
   const cases: ParsedCase[] = [];
+  if (headerIdx < 0) {
+    console.log('[PARSER-STRUCTURED] No header row found, returning empty');
+    return { reportDate, forceDescription, zoneCoverage, cases, rawText, totalCases: 0 };
+  }
 
-  for (const row of rows) {
-    if (row.length < 7) continue;
+  // Only process rows immediately after the header, within the same table
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
 
-    // For data rows, check first cell starts with digit (Sl. No)
+    // Stop when column count changes (different table started)
+    if (Math.abs(row.length - expectedCols) > 2) {
+      console.log(`[PARSER-STRUCTURED] Row ${i}: col count ${row.length} != expected ${expectedCols}, stopping`);
+      break;
+    }
+
+    const joined = row.map(c => c.toLowerCase()).join('|');
+    // Stop at "Total Cases" — end of main table
+    if (/total\s*cases/i.test(joined)) break;
+    // Stop at another header row (new table)
+    if (isHeaderRow(joined)) {
+      console.log(`[PARSER-STRUCTURED] Row ${i}: another header row detected, stopping`);
+      break;
+    }
+
+    // Accept data rows: Sl.No is a number, OR Sl.No empty but cell has Zone/PS data
     const firstCell = (row[0] || '').trim();
-    if (!/^\d+/.test(firstCell)) continue;
-    if (/total\s*cases/i.test(row.join(' '))) continue;
+    const hasSlNo = /^\d+/.test(firstCell);
+    const hasZonePSData = row.length >= 2 && /(Zone|PS\b|Sector)/i.test(row[1] || '');
+    const hasSubstantiveData = row.some((c, idx) => idx > 0 && c.trim().length > 3 && c.trim() !== '--');
+    if (!hasSlNo && !hasZonePSData && !hasSubstantiveData) continue;
+
+    // Skip placeholder rows (all cells after col 0 are empty or "--")
+    const dataCells = row.slice(1);
+    const allPlaceholder = dataCells.every(c => !c.trim() || c.trim() === '--');
+    if (allPlaceholder) continue;
 
     // Log row for debugging
     console.log(`[PARSER-STRUCTURED] Row (${row.length} cells):`, row.map(c => c.slice(0, 40)));

@@ -12,19 +12,22 @@ const GIS: React.FC = () => {
     },
   });
 
-  if (isLoading) return <div className="text-gray-400">Loading…</div>;
+  if (isLoading) return <div className="text-slate-400">Loading…</div>;
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">GIS — Police Stations</h1>
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider">GIS — Police Stations</h1>
+        <p className="text-[11px] text-blue-200">Geographic information system for station locations</p>
+      </div>
 
-      <div className="bg-white rounded-xl shadow p-6">
-        <p className="text-sm text-gray-500 mb-4">
+      <div className="bg-white border border-slate-200 shadow p-6">
+        <p className="text-sm text-slate-500 mb-4">
           Station locations listed below. Integrate with a map library (e.g. Leaflet) for visual display.
         </p>
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr className="text-left text-gray-500">
+          <thead className="bg-slate-50">
+            <tr className="text-left text-slate-500">
               <th className="px-4 py-3">Station</th>
               <th className="px-4 py-3">Code</th>
               <th className="px-4 py-3">Latitude</th>
@@ -34,7 +37,7 @@ const GIS: React.FC = () => {
           <tbody>
             {data && data.length > 0 ? (
               data.map((s) => (
-                <tr key={s._id} className="border-t hover:bg-gray-50">
+                <tr key={s._id} className="border-t hover:bg-slate-50">
                   <td className="px-4 py-3">{s.name}</td>
                   <td className="px-4 py-3 font-mono">{s.code}</td>
                   <td className="px-4 py-3">{s.latitude ?? '—'}</td>
@@ -42,7 +45,7 @@ const GIS: React.FC = () => {
                 </tr>
               ))
             ) : (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No stations found.</td></tr>
+              <tr><td colSpan={4} className="px-4 py-8 text-center text-slate-400">No stations found.</td></tr>
             )}
           </tbody>
         </table>

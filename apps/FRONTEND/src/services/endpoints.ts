@@ -86,6 +86,14 @@ export const getDSRs = (params?: Record<string, unknown>) =>
 
 export const getDSR = (id: string) => api.get(`/dsr/${id}`);
 
+export const getDSRDocument = (id: string) => api.get(`/dsr/${id}/document`);
+
+export const downloadDSRFile = (id: string) =>
+  api.get(`/dsr/${id}/download`, { responseType: 'arraybuffer' });
+
+export const getDSRDownloadUrl = (id: string) =>
+  `${api.defaults.baseURL}/dsr/${id}/download`;
+
 export const uploadDSR = (formData: FormData) =>
   api.post('/dsr/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
 
@@ -118,6 +126,12 @@ export const assignMemoRecipient = (id: string, data: { recipientType: string; r
 
 export const approveMemo = (id: string) =>
   api.put(`/memos/${id}/approve`);
+
+export const holdMemo = (id: string, remarks?: string) =>
+  api.put(`/memos/${id}/hold`, { remarks });
+
+export const rejectMemo = (id: string, remarks?: string) =>
+  api.put(`/memos/${id}/reject`, { remarks });
 
 export const deleteMemo = (id: string) =>
   api.delete(`/memos/${id}`);

@@ -69,7 +69,9 @@ const dsrSchema = new Schema(
     raidedBy: String, // Force that conducted the raid, selected during upload
     fileName: String,
     fileType: String,
+    filePath: String, // path to original uploaded file on disk
     rawText: String,
+    documentHtml: String, // full HTML conversion of the original document
     parsedCases: [parsedCaseSchema],
     parsedData: Schema.Types.Mixed,
     processingStatus: { type: String, enum: Object.values(DSRStatus), default: DSRStatus.PENDING },

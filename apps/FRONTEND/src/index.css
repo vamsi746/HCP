@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Thin scrollbar utility */
+.scrollbar-thin::-webkit-scrollbar { width: 3px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
 body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
@@ -97,6 +102,72 @@ body {
   from { opacity: 0; transform: translateX(-50%) translateY(4px); }
   to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+
+/* ── DSR Full Document Viewer (docx-preview) ── */
+.dsr-docx-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  min-height: 100%;
+}
+.dsr-docx-container .docx-wrapper {
+  background: transparent !important;
+  padding: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+}
+.dsr-docx-container .docx-wrapper > section.docx {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12) !important;
+  margin: 0 auto 20px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  padding: 15mm 10mm !important;
+  box-sizing: border-box !important;
+}
+.dsr-docx-container .docx-wrapper table {
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+  border-collapse: collapse;
+}
+.dsr-docx-container .docx-wrapper table td,
+.dsr-docx-container .docx-wrapper table th {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  padding: 4px 6px !important;
+  width: auto !important;
+  min-width: 0 !important;
+}
+.dsr-docx-container .docx-wrapper col {
+  width: auto !important;
+}
+
+/* ── DSR HTML fallback (.doc / .txt files) ── */
+.dsr-document-view table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+}
+.dsr-document-view table td,
+.dsr-document-view table th {
+  border: 1px solid #999;
+  padding: 4px 8px;
+  vertical-align: top;
+  font-size: 10pt;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+.dsr-document-view table th {
+  background: #f3f4f6;
+  font-weight: bold;
+}
+.dsr-document-view p {
+  margin: 0.3em 0;
+}
+
 .tiptap table {
   border-collapse: collapse;
   width: 100%;
@@ -112,6 +183,14 @@ body {
 .tiptap table th {
   background: #f3f4f6;
   font-weight: 600;
+}
+.tiptap table.no-border,
+.tiptap table.no-border td,
+.tiptap table.no-border th {
+  border: none !important;
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 /* Placeholder only when the ENTIRE editor is empty (first child node) */
 .tiptap p.is-editor-empty:first-child::before {

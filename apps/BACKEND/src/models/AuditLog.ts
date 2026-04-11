@@ -15,7 +15,7 @@ const auditLogSchema = new Schema(
   { timestamps: false }
 );
 
-auditLogSchema.index({ timestamp: 1, expireAfterSeconds: 7 * 365 * 24 * 3600 });
+auditLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 7 * 365 * 24 * 3600 });
 auditLogSchema.index({ officerId: 1, timestamp: 1 });
 auditLogSchema.index({ entity: 1, entityId: 1 });
 

@@ -6,6 +6,8 @@ export enum MemoStatus {
   REVIEWED = 'REVIEWED',
   APPROVED = 'APPROVED',
   SENT = 'SENT',
+  ON_HOLD = 'ON_HOLD',
+  REJECTED = 'REJECTED',
 }
 
 const memoSchema = new Schema(

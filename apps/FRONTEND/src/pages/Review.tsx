@@ -1,31 +1,98 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMemos, getMemo, approveMemo, assignMemoRecipient, getCaseOfficers } from '../services/endpoints';
+import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers } from '../services/endpoints';
 import MemoEditor from '../components/MemoEditor';
-import { Eye, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X } from 'lucide-react';
+import { Eye, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, ExternalLink, AlertTriangle, Users, Briefcase, Scale } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import type { Memo, MemoStatus } from '../types';
 
-const TABS: { key: MemoStatus; label: string; color: string }[] = [
-  { key: 'PENDING_REVIEW', label: 'Pending Review', color: 'text-blue-600' },
-  { key: 'REVIEWED', label: 'Reviewed / Assigned', color: 'text-indigo-600' },
-  { key: 'APPROVED', label: 'Approved', color: 'text-emerald-600' },
+const TABS: { key: string; label: string; disabled?: boolean }[] = [
+  { key: 'PENDING_REVIEW', label: 'Pending' },
+  { key: 'APPROVED,ON_HOLD,REJECTED', label: 'Reviewed' },
+  { key: 'COMPLIED', label: 'Complied' },
 ];
 
 const Review: React.FC = () => {
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<MemoStatus>('PENDING_REVIEW');
+  const [tab, setTab] = useState<string>('PENDING_REVIEW');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memoDetail, setMemoDetail] = useState<Memo | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [assignModal, setAssignModal] = useState<Memo | null>(null);
   const [officers, setOfficers] = useState<{ si: any; sho: any } | null>(null);
   const [loadingOfficers, setLoadingOfficers] = useState(false);
+  const [casePopup, setCasePopup] = useState<Memo | null>(null);
+  const [dialog, setDialog] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    showCancel: boolean;
+    onConfirm?: () => void;
+  }>({
+    open: false,
+    title: '',
+    message: '',
+    confirmLabel: 'OK',
+    showCancel: false,
+  });
+  const [popupSize, setPopupSize] = useState({ width: 420, height: 340 });
+  const [popupPos, setPopupPos] = useState({ x: -1, y: -1 });
+  const interacting = useRef<'drag' | 'resize' | null>(null);
+  const startRef = useRef({ mx: 0, my: 0, x: 0, y: 0, w: 0, h: 0 });
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    interacting.current = 'drag';
+    startRef.current = { mx: e.clientX, my: e.clientY, x: popupPos.x, y: popupPos.y, w: 0, h: 0 };
+    const onMove = (ev: MouseEvent) => {
+      if (interacting.current !== 'drag') return;
+      setPopupPos({
+        x: startRef.current.x + (ev.clientX - startRef.current.mx),
+        y: startRef.current.y + (ev.clientY - startRef.current.my),
+      });
+    };
+    const onUp = () => { interacting.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [popupPos]);
+
+  const onResizeStart = useCallback((dir: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    interacting.current = 'resize';
+    startRef.current = { mx: e.clientX, my: e.clientY, x: popupPos.x, y: popupPos.y, w: popupSize.width, h: popupSize.height };
+    const onMove = (ev: MouseEvent) => {
+      if (interacting.current !== 'resize') return;
+      const dx = ev.clientX - startRef.current.mx;
+      const dy = ev.clientY - startRef.current.my;
+      let { x, y, w, h } = { x: startRef.current.x, y: startRef.current.y, w: startRef.current.w, h: startRef.current.h };
+      if (dir.includes('r')) w = Math.max(320, w + dx);
+      if (dir.includes('b')) h = Math.max(200, h + dy);
+      if (dir.includes('l')) { const nw = Math.max(320, w - dx); x = x + (w - nw); w = nw; }
+      if (dir.includes('t')) { const nh = Math.max(200, h - dy); y = y + (h - nh); h = nh; }
+      setPopupSize({ width: w, height: h });
+      setPopupPos({ x, y });
+    };
+    const onUp = () => { interacting.current = null; document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [popupSize, popupPos]);
+
+  const openCasePopup = useCallback((memo: Memo) => {
+    const cx = window.innerWidth - popupSize.width - 24;
+    const cy = 80;
+    setPopupPos({ x: cx, y: cy });
+    setCasePopup(memo);
+  }, [popupSize]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['memos-review', tab],
     queryFn: async () => {
+      if (tab === 'COMPLIED') {
+        return { data: [], pagination: { page: 1, limit: 50, total: 0 } };
+      }
       const res = await getMemos({ status: tab, limit: 50 });
       return res.data;
     },
@@ -45,14 +112,107 @@ const Review: React.FC = () => {
   const assignMutation = useMutation({
     mutationFn: ({ id, recipientType, recipientId }: { id: string; recipientType: string; recipientId: string }) =>
       assignMemoRecipient(id, { recipientType, recipientId }),
-    onSuccess: () => {
-      toast.success('Recipient assigned');
+    onSuccess: (res) => {
+      toast.success('Memo issued successfully');
       queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
+      queryClient.invalidateQueries({ queryKey: ['memo'] });
       setAssignModal(null);
       setOfficers(null);
+      if (res?.data?.data) {
+        setMemoDetail(res.data.data);
+      }
     },
-    onError: () => toast.error('Failed to assign'),
+    onError: () => toast.error('Failed to issue'),
   });
+
+  const holdMutation = useMutation({
+    mutationFn: (id: string) => holdMemo(id),
+    onSuccess: () => {
+      toast.success('Memo put on hold');
+      queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
+      setMemoDetail(null);
+      setSelectedId(null);
+    },
+    onError: () => toast.error('Failed to hold memo'),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) => rejectMemo(id),
+    onSuccess: () => {
+      toast.success('Memo rejected');
+      queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos'] });
+      setMemoDetail(null);
+      setSelectedId(null);
+    },
+    onError: () => toast.error('Failed to reject memo'),
+  });
+
+  const openDialog = (config: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    showCancel?: boolean;
+    onConfirm?: () => void;
+  }) => {
+    setDialog({
+      open: true,
+      title: config.title,
+      message: config.message,
+      confirmLabel: config.confirmLabel || 'OK',
+      showCancel: config.showCancel ?? false,
+      onConfirm: config.onConfirm,
+    });
+  };
+
+  const closeDialog = () => {
+    setDialog((prev) => ({ ...prev, open: false, onConfirm: undefined }));
+  };
+
+  const confirmDialogAction = () => {
+    const action = dialog.onConfirm;
+    closeDialog();
+    action?.();
+  };
+
+  const confirmApprove = (id: string) => {
+    if (!memoDetail?.recipientId && !memoDetail?.recipientName) {
+      openDialog({
+        title: 'Action Required',
+        message: 'Kindly assign the memorandum to SI/SHO by selecting Issue To before proceeding.',
+      });
+      return;
+    }
+    openDialog({
+      title: 'Confirm Approval',
+      message: 'Are you sure you want to approve this memorandum?',
+      confirmLabel: 'Approve',
+      showCancel: true,
+      onConfirm: () => approveMutation.mutate(id),
+    });
+  };
+
+  const confirmHold = (id: string) => {
+    openDialog({
+      title: 'Confirm Hold',
+      message: 'Are you sure you want to place this memorandum on hold?',
+      confirmLabel: 'Put On Hold',
+      showCancel: true,
+      onConfirm: () => holdMutation.mutate(id),
+    });
+  };
+
+  const confirmReject = (id: string) => {
+    openDialog({
+      title: 'Confirm Rejection',
+      message: 'Are you sure you want to reject this memorandum?',
+      confirmLabel: 'Reject',
+      showCancel: true,
+      onConfirm: () => rejectMutation.mutate(id),
+    });
+  };
 
   const openDetail = async (memo: Memo) => {
     setSelectedId(memo._id);
@@ -90,202 +250,470 @@ const Review: React.FC = () => {
   // Full memo detail view
   if (selectedId && memoDetail) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-4">
+      <>
+      <div className="min-h-screen bg-[#F4F5F7]">
+        {/* Header bar */}
+        <div className="bg-[#003366] px-5 py-3.5 flex items-center justify-between border-b-2 border-[#B8860B]">
           <div className="flex items-center gap-3">
-            <button onClick={() => { setSelectedId(null); setMemoDetail(null); }} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+            <button onClick={() => { setSelectedId(null); setMemoDetail(null); }} className="p-1.5 hover:bg-white/10 text-white/70 hover:text-white transition">
               <ArrowLeft size={18} />
             </button>
             <div>
-              <h1 className="text-xl font-bold text-gray-800">
-                {memoDetail.policeStation || 'Unknown'} PS — Cr.No. {memoDetail.crimeNo || '—'}
-              </h1>
-              <p className="text-xs text-gray-400 mt-0.5">{memoDetail.reference}</p>
+              <div className="flex items-center gap-3">
+                <h1 className="text-sm font-bold text-white uppercase tracking-wider">
+                  {memoDetail.policeStation || 'Unknown'} PS — Cr.No. {memoDetail.crimeNo || '—'}
+                </h1>
+                <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-sm ${
+                  memoDetail.status === 'PENDING_REVIEW' ? 'bg-amber-500 text-white' :
+                  memoDetail.status === 'REVIEWED' ? 'bg-[#1B6B46] text-white' :
+                  memoDetail.status === 'ON_HOLD' ? 'bg-[#A66914] text-white' :
+                  memoDetail.status === 'REJECTED' ? 'bg-[#9B2C2C] text-white' :
+                  'bg-[#1B6B46] text-white'
+                }`}>
+                  {memoDetail.status === 'PENDING_REVIEW' ? 'PENDING' : memoDetail.status === 'APPROVED' ? 'APPROVED' : memoDetail.status === 'ON_HOLD' ? 'ON HOLD' : memoDetail.status}
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5">{memoDetail.reference}</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {(memoDetail.status === 'PENDING_REVIEW') && (
+            {memoDetail.status === 'PENDING_REVIEW' && (
               <button
                 onClick={() => openAssign(memoDetail)}
-                className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition"
+                className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-[#003366] border border-white/40 text-xs font-bold uppercase tracking-wider hover:bg-white/90 transition rounded-sm"
               >
-                <UserCheck size={14} />
-                Assign Recipient
+                <UserCheck size={13} />
+                Issue To
               </button>
             )}
-            {(memoDetail.status === 'REVIEWED' || memoDetail.status === 'PENDING_REVIEW') && (
-              <button
-                onClick={() => approveMutation.mutate(memoDetail._id)}
-                disabled={approveMutation.isPending}
-                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition"
-              >
-                <CheckCircle2 size={14} />
-                {approveMutation.isPending ? 'Approving…' : 'Approve'}
-              </button>
+            {(memoDetail.status === 'REVIEWED' || memoDetail.status === 'PENDING_REVIEW' || memoDetail.status === 'ON_HOLD') && (
+              <>
+                <button
+                  onClick={() => confirmApprove(memoDetail._id)}
+                  disabled={approveMutation.isPending}
+                  className="flex items-center gap-1.5 px-4 py-1.5 bg-[#1B6B46] text-white text-xs font-bold uppercase tracking-wider hover:bg-[#155A38] disabled:opacity-50 transition rounded-sm"
+                >
+                  <CheckCircle2 size={13} />
+                  {approveMutation.isPending ? 'Approving…' : 'Approve'}
+                </button>
+                <button className="flex items-center gap-1.5 px-4 py-1.5 bg-[#A66914] text-white text-xs font-bold uppercase tracking-wider hover:bg-[#8C5810] disabled:opacity-50 transition rounded-sm"
+                  onClick={() => confirmHold(memoDetail._id)}
+                  disabled={holdMutation.isPending}
+                >
+                  <Clock size={13} />
+                  {holdMutation.isPending ? 'Holding…' : 'Hold'}
+                </button>
+                <button className="flex items-center gap-1.5 px-4 py-1.5 bg-[#9B2C2C] text-white text-xs font-bold uppercase tracking-wider hover:bg-[#832424] disabled:opacity-50 transition rounded-sm"
+                  onClick={() => confirmReject(memoDetail._id)}
+                  disabled={rejectMutation.isPending}
+                >
+                  <Ban size={13} />
+                  {rejectMutation.isPending ? 'Rejecting…' : 'Reject'}
+                </button>
+              </>
             )}
           </div>
         </div>
 
-        {/* Info bar */}
-        <div className="flex items-center gap-4 mb-4 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
-          <span><strong>Zone:</strong> {memoDetail.zone || '—'}</span>
-          <span><strong>PS:</strong> {memoDetail.policeStation || '—'}</span>
-          <span><strong>Sections:</strong> u/s {memoDetail.sections || '—'}</span>
+        {/* Info strip */}
+        <div className="bg-white border-b border-[#D9DEE4] px-5 py-2.5 flex items-center gap-3 text-xs">
+          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><MapPin size={12} className="text-[#003366]" />{memoDetail.zone || '—'}</span>
+          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><Shield size={12} className="text-[#003366]" />{memoDetail.policeStation || '—'} PS</span>
+          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><Scale size={12} className="text-[#003366]" />u/s {memoDetail.sections || '—'}</span>
+          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><Calendar size={12} className="text-[#003366]" />{format(new Date(memoDetail.date), 'dd MMM yyyy')}</span>
           {memoDetail.recipientName && (
-            <span className="text-indigo-600 font-medium">
-              <strong>To:</strong> {memoDetail.recipientDesignation}, {memoDetail.recipientName}
+            <span className="inline-flex items-center gap-1.5 bg-[#E8F5E9] text-[#155A38] px-3 py-1 border border-[#1B6B46]/20 rounded-sm font-bold">
+              <UserCheck size={12} />Issued To: {memoDetail.recipientDesignation}, {memoDetail.recipientName}
             </span>
           )}
         </div>
 
-        <MemoEditor content={memoDetail.content} onUpdate={() => {}} editable={false} />
+        {/* Memo content */}
+        <div className="mt-5 mx-4 mb-4 bg-white border border-neutral-200 shadow-sm rounded-sm">
+          <div className="bg-[#003366] px-4 py-1.5 rounded-t-sm">
+            <p className="text-[10px] font-bold text-white uppercase tracking-wider">Memorandum Document</p>
+          </div>
+          <div className="p-2">
+            <MemoEditor content={memoDetail.content} onUpdate={() => {}} editable={false} />
+          </div>
+        </div>
 
         {/* Assign modal */}
         {assignModal && (
           <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => { setAssignModal(null); setOfficers(null); }}>
-            <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-800">Assign Recipient</h2>
-                <button onClick={() => { setAssignModal(null); setOfficers(null); }} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            <div className="bg-white shadow-2xl w-full max-w-md border border-neutral-200 rounded-sm" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-[#003366] px-5 py-3 flex items-center justify-between rounded-t-sm">
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider">Issue To</h2>
+                <button onClick={() => { setAssignModal(null); setOfficers(null); }} className="text-white/50 hover:text-white"><X size={18} /></button>
               </div>
-              <p className="text-sm text-gray-500 mb-4">
-                Select the officer who should receive this memo for <strong>{assignModal.policeStation} PS</strong>.
-              </p>
-              {loadingOfficers ? (
-                <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-400" /></div>
-              ) : (
-                <div className="space-y-3">
-                  {officers?.sho && (
-                    <button
-                      onClick={() => assignMutation.mutate({ id: assignModal._id, recipientType: 'SHO', recipientId: officers.sho._id })}
-                      disabled={assignMutation.isPending}
-                      className="w-full text-left p-4 rounded-xl border-2 border-amber-200 bg-amber-50 hover:bg-amber-100 transition"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] font-bold text-amber-500 uppercase">SHO</span>
-                          <p className="font-bold text-gray-800">{officers.sho.name}</p>
-                          <p className="text-xs text-gray-500">{officers.sho.rank} • {officers.sho.badgeNumber}</p>
+              <div className="p-5">
+                <p className="text-sm text-neutral-600 mb-4">
+                  Assign memo to officer at <strong className="text-[#1C2334]">{assignModal.policeStation} PS</strong>
+                </p>
+                {loadingOfficers ? (
+                  <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-neutral-400" /></div>
+                ) : (
+                  <div className="space-y-2">
+                    {officers?.sho && (
+                      <button
+                        onClick={() => assignMutation.mutate({ id: assignModal._id, recipientType: 'SHO', recipientId: officers.sho._id })}
+                        disabled={assignMutation.isPending}
+                        className="w-full text-left p-4 border border-[#D9DEE4] bg-white hover:bg-[#EBF0F5] hover:border-[#003366]/30 transition rounded-sm"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[11px] font-bold text-[#003366] uppercase tracking-wider">SHO</span>
+                            <p className="font-bold text-[#1C2334]">{officers.sho.name}</p>
+                            <p className="text-xs text-[#718096]">{officers.sho.rank} • {officers.sho.badgeNumber}</p>
+                          </div>
+                          <UserCheck size={20} className="text-[#003366]" />
                         </div>
-                        <UserCheck size={20} className="text-amber-500" />
-                      </div>
-                    </button>
-                  )}
-                  {officers?.si && (
-                    <button
-                      onClick={() => assignMutation.mutate({ id: assignModal._id, recipientType: 'SI', recipientId: officers.si._id })}
-                      disabled={assignMutation.isPending}
-                      className="w-full text-left p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 transition"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[10px] font-bold text-blue-500 uppercase">SI</span>
-                          <p className="font-bold text-gray-800">{officers.si.name}</p>
-                          <p className="text-xs text-gray-500">{officers.si.rank} • {officers.si.badgeNumber}</p>
+                      </button>
+                    )}
+                    {officers?.si && (
+                      <button
+                        onClick={() => assignMutation.mutate({ id: assignModal._id, recipientType: 'SI', recipientId: officers.si._id })}
+                        disabled={assignMutation.isPending}
+                        className="w-full text-left p-4 border border-[#D9DEE4] bg-white hover:bg-[#EBF0F5] hover:border-[#003366]/30 transition rounded-sm"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-[11px] font-bold text-[#4A5568] uppercase tracking-wider">SI</span>
+                            <p className="font-bold text-[#1C2334]">{officers.si.name}</p>
+                            <p className="text-xs text-[#718096]">{officers.si.rank} • {officers.si.badgeNumber}</p>
+                          </div>
+                          <UserCheck size={20} className="text-neutral-400" />
                         </div>
-                        <UserCheck size={20} className="text-blue-500" />
-                      </div>
-                    </button>
-                  )}
-                  {!officers?.sho && !officers?.si && (
-                    <p className="text-sm text-gray-500 text-center py-4">No officers found for this police station.</p>
-                  )}
-                </div>
-              )}
+                      </button>
+                    )}
+                    {!officers?.sho && !officers?.si && (
+                      <p className="text-sm text-neutral-500 text-center py-4">No officers found for this police station.</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
-      </div>
-    );
-  }
 
-  // Memo list view
-  return (
-    <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">To be Reviewed by CP Sir</h1>
-        <p className="text-gray-500 text-sm mt-1">Review, assign recipients, and approve memos</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex items-center gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-fit">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              tab === t.key ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* List */}
-      <div className="space-y-3">
-        {isLoading ? (
-          <div className="bg-white rounded-xl shadow p-12 text-center text-gray-400">Loading…</div>
-        ) : memos.length === 0 ? (
-          <div className="bg-white rounded-xl shadow p-12 text-center">
-            <FileText size={48} className="mx-auto text-gray-300 mb-3" />
-            <p className="text-gray-500">No memos in this category.</p>
-          </div>
-        ) : (
-          memos.map((memo) => (
-            <div
-              key={memo._id}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer"
-              onClick={() => openDetail(memo)}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="font-semibold text-gray-800">{memo.policeStation || 'Unknown'} PS</span>
-                    <span className="text-gray-400">•</span>
-                    <span className="text-gray-600 font-mono text-xs">Cr.No. {memo.crimeNo || '—'}</span>
-                    <span className="text-xs text-gray-400">
-                      {format(new Date(memo.date), 'dd MMM yyyy')}
-                    </span>
-                  </div>
-                  {memo.recipientName && (
-                    <div className="text-xs text-indigo-600">
-                      Assigned to: {memo.recipientDesignation}, {memo.recipientName}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {tab === 'PENDING_REVIEW' && (
+        {/* Action dialog */}
+        {dialog.open && (
+          <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center" onClick={closeDialog}>
+            <div className="w-full max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-[#003366] px-5 py-3 rounded-t-sm">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">{dialog.title}</h3>
+              </div>
+              <div className="p-5">
+                <p className="text-sm text-[#4A5568] leading-relaxed">{dialog.message}</p>
+                <div className="mt-5 flex items-center justify-end gap-2">
+                  {dialog.showCancel && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); openAssign(memo); }}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition"
+                      onClick={closeDialog}
+                      className="px-4 py-2 text-xs font-bold uppercase tracking-wider border border-[#D9DEE4] text-[#4A5568] hover:bg-[#F4F5F7] rounded-sm"
                     >
-                      <UserCheck size={12} />
-                      Assign
-                    </button>
-                  )}
-                  {(tab === 'REVIEWED' || tab === 'PENDING_REVIEW') && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); approveMutation.mutate(memo._id); }}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 rounded-lg hover:bg-emerald-100 transition"
-                    >
-                      <CheckCircle2 size={12} />
-                      Approve
+                      Cancel
                     </button>
                   )}
                   <button
-                    onClick={(e) => { e.stopPropagation(); openDetail(memo); }}
-                    className="p-1.5 text-gray-400 hover:text-blue-600 rounded"
+                    onClick={confirmDialogAction}
+                    className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-[#003366] text-white hover:bg-[#004480] rounded-sm"
                   >
-                    <Eye size={14} />
+                    {dialog.confirmLabel}
                   </button>
                 </div>
               </div>
             </div>
-          ))
+          </div>
         )}
       </div>
+
+      {/* ─── Floating Case Detail Popup (persists across views) ─── */}
+      {casePopup && (
+          <div
+            className="fixed bg-white border border-[#D9DEE4] shadow-2xl flex flex-col rounded-sm z-50"
+            style={{ left: popupPos.x, top: popupPos.y, width: popupSize.width, height: popupSize.height, maxWidth: '90vw', maxHeight: '90vh' }}
+          >
+            <div
+              className="bg-[#003366] px-4 py-2.5 flex items-center justify-between flex-shrink-0 cursor-move select-none rounded-t-sm"
+              onMouseDown={onDragStart}
+            >
+              <h2 className="text-xs font-bold text-white uppercase tracking-wider">
+                {casePopup.zone || 'Unknown'} Zone — Cr.No. {casePopup.crimeNo || '—'}
+              </h2>
+              <button onClick={() => setCasePopup(null)} className="text-white/50 hover:text-white" onMouseDown={(e) => e.stopPropagation()}><X size={16} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#F4F5F7]">
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Nature of Case</legend>
+                <p className="text-sm text-[#4A5568]">{casePopup.caseDetails?.natureOfCase || '—'}</p>
+              </fieldset>
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Name of the P.S., Cr. No, U/Sec & D.O.R</legend>
+                <p className="text-sm text-[#4A5568]">
+                  {casePopup.caseDetails?.psWithCrDetails || `${casePopup.policeStation || ''} PS Cr.No. ${casePopup.crimeNo || ''} U/s ${casePopup.sections || ''} ${casePopup.caseDetails?.dor ? `DOR.${casePopup.caseDetails.dor}` : ''}`}
+                </p>
+              </fieldset>
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Details of Accused</legend>
+                <div className="flex items-center gap-2 mb-2">
+                  {(casePopup.caseDetails?.numAccused ?? 0) > 0 && (
+                    <span className="text-[10px] font-bold bg-[#1B6B46] text-white px-2 py-0.5 rounded-sm">{casePopup.caseDetails!.numAccused} Accused</span>
+                  )}
+                  {(casePopup.caseDetails?.numCases ?? 0) > 0 && (
+                    <span className="text-[10px] font-bold bg-[#003366] text-white px-2 py-0.5 rounded-sm">{casePopup.caseDetails!.numCases} Cases</span>
+                  )}
+                  <span className="text-[10px] font-bold bg-[#9B2C2C] text-white px-2 py-0.5 rounded-sm">{casePopup.caseDetails?.abscondingAccused ?? 0} Absconding</span>
+                </div>
+                <p className="text-sm text-[#4A5568] whitespace-pre-wrap">{casePopup.caseDetails?.accusedParticulars || '—'}</p>
+              </fieldset>
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Brief Facts</legend>
+                <p className="text-sm text-[#4A5568] whitespace-pre-wrap">{casePopup.caseDetails?.briefFacts || casePopup.briefFacts || '—'}</p>
+              </fieldset>
+              {(casePopup.caseDetails?.seizedProperty || casePopup.caseDetails?.seizedWorth) && (
+                <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                  <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Property Seized & Worth</legend>
+                  {casePopup.caseDetails?.seizedWorth && (
+                    <span className="inline-block text-[10px] font-bold bg-[#A66914] text-white px-2 py-0.5 mb-2 rounded-sm">Rs. {casePopup.caseDetails.seizedWorth}</span>
+                  )}
+                  <p className="text-sm text-[#4A5568] whitespace-pre-wrap">{casePopup.caseDetails?.seizedProperty || '—'}</p>
+                </fieldset>
+              )}
+            </div>
+            {/* Resize edges & corners */}
+            <div onMouseDown={onResizeStart('t')} className="absolute top-0 left-2 right-2 h-1 cursor-n-resize" />
+            <div onMouseDown={onResizeStart('b')} className="absolute bottom-0 left-2 right-2 h-1 cursor-s-resize" />
+            <div onMouseDown={onResizeStart('l')} className="absolute left-0 top-2 bottom-2 w-1 cursor-w-resize" />
+            <div onMouseDown={onResizeStart('r')} className="absolute right-0 top-2 bottom-2 w-1 cursor-e-resize" />
+            <div onMouseDown={onResizeStart('tl')} className="absolute top-0 left-0 w-2 h-2 cursor-nw-resize" />
+            <div onMouseDown={onResizeStart('tr')} className="absolute top-0 right-0 w-2 h-2 cursor-ne-resize" />
+            <div onMouseDown={onResizeStart('bl')} className="absolute bottom-0 left-0 w-2 h-2 cursor-sw-resize" />
+            <div onMouseDown={onResizeStart('br')} className="absolute bottom-0 right-0 w-2 h-2 cursor-se-resize" />
+          </div>
+      )}
+      </>
+    );
+  }
+
+  /* ─── Grid card list view ─── */
+  return (
+    <>
+    <div>
+      {/* Page header */}
+      <div className="bg-[#003366] px-5 py-3 mb-5 border-b-2 border-[#B8860B]">
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider">To Be Reviewed by CP Sir</h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-0 mb-5 border-b border-neutral-200">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-5 py-2.5 text-xs font-bold uppercase tracking-wider border-b-[3px] transition-all ${
+              tab === t.key
+                ? 'border-[#003366] text-[#003366] bg-[#003366]/5'
+                : 'border-transparent text-[#718096] hover:text-[#4A5568] hover:border-[#D9DEE4]'
+            }`}
+          >
+            {t.label}
+            {data?.data && t.key === tab && (
+              <span className="ml-2 bg-[#003366] text-white text-[10px] px-1.5 py-0.5 font-bold rounded-sm">{memos.length}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Cards grid */}
+      {isLoading ? (
+        <div className="bg-white border border-neutral-200 rounded-sm p-16 text-center text-neutral-400">
+          <Loader2 size={28} className="animate-spin mx-auto mb-2" />
+          <p className="text-xs uppercase tracking-wider font-semibold">Loading memos…</p>
+        </div>
+      ) : memos.length === 0 ? (
+        <div className="bg-white border border-neutral-200 rounded-sm p-16 text-center">
+          <FileText size={40} className="mx-auto text-neutral-300 mb-3" />
+          <p className="text-sm text-neutral-500 font-semibold">No memos in this category.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          {memos.map((memo) => (
+            <div key={memo._id} className="bg-white border border-[#D9DEE4] rounded-sm shadow-sm hover:shadow-md hover:border-[#003366]/30 transition-all duration-200">
+              {/* Card header */}
+              <div className="bg-[#003366] px-3 py-2 flex items-center justify-between rounded-t-sm">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-[11px] font-bold text-white uppercase tracking-wider truncate">
+                    {memo.zone || 'Unknown'} Zone
+                  </span>
+                  <span className="text-neutral-500 text-[9px]">|</span>
+                  <span className="text-[10px] text-neutral-400 font-mono whitespace-nowrap">Cr.No. {memo.crimeNo || '—'}</span>
+                </div>
+                <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 flex-shrink-0 rounded-sm ${
+                  memo.status === 'PENDING_REVIEW' ? 'bg-amber-500 text-white' :
+                  memo.status === 'REVIEWED' ? 'bg-[#1B6B46] text-white' :
+                  memo.status === 'ON_HOLD' ? 'bg-[#A66914] text-white' :
+                  memo.status === 'REJECTED' ? 'bg-[#9B2C2C] text-white' :
+                  'bg-[#1B6B46] text-white'
+                }`}>
+                  {memo.status === 'PENDING_REVIEW' ? 'PENDING' : memo.status === 'ON_HOLD' ? 'ON HOLD' : memo.status}
+                </span>
+              </div>
+
+              {/* Card body — 50/50 split */}
+              <div className="flex" style={{ height: '280px' }}>
+                {/* LEFT 50% — Memo preview */}
+                <div className="w-1/2 p-0.5 flex flex-col overflow-hidden border-r border-neutral-100">
+                  <div className="flex-1 border border-neutral-100 bg-white overflow-hidden relative">
+                    <div className="absolute inset-0 overflow-y-auto overflow-x-hidden scrollbar-thin" style={{ zoom: 0.3, scrollbarWidth: 'thin', scrollbarColor: '#d4d4d4 transparent' }}>
+                      <div className="p-4 [&_.ProseMirror]:!max-w-full [&_.ProseMirror]:!overflow-hidden [&_table]:!w-full [&_table]:!table-fixed [&_*]:!max-w-full [&_img]:!max-w-full [&_.tiptap-footer]:!overflow-hidden">
+                        <MemoEditor content={memo.content} onUpdate={() => {}} editable={false} />
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => openDetail(memo)}
+                    className="w-full flex-shrink-0 bg-[#003366] text-white text-[10px] font-bold uppercase tracking-wider py-1.5 hover:bg-[#004480] transition flex items-center justify-center gap-1 mt-1.5 rounded-sm"
+                  >
+                    <Eye size={11} />
+                    Review
+                  </button>
+                </div>
+
+                {/* RIGHT 50% — Case details */}
+                <div className="w-1/2 flex flex-col bg-[#F0F2F5]">
+                  <div className="flex-1 px-3 pt-1.5 pb-1 overflow-y-auto scrollbar-thin" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d4d4d4 transparent' }}>
+                    <p className="text-[10px] font-bold text-[#003366] uppercase tracking-wider mb-1 border-b border-[#003366]/20 pb-0.5">Case Details</p>
+                    <table className="w-full text-[11px] border-collapse">
+                      <tbody>
+                        {([
+                          ['Cr.No', memo.crimeNo || '—'],
+                          ['Nature', memo.caseDetails?.natureOfCase || '—'],
+                          ['Zone', memo.zone || '—'],
+                          ['PS', memo.policeStation || '—'],
+                          ['SHO', memo.caseDetails?.sho?.name || '—'],
+                          ['Sector', memo.caseDetails?.sector || '—'],
+                          ['SI', memo.caseDetails?.si?.name || '—'],
+                          ['Date', memo.raidedDate ? format(new Date(memo.raidedDate), 'dd MMM yyyy') : format(new Date(memo.date), 'dd MMM yyyy')],
+                        ] as [string, string][]).map(([k, v]) => (
+                          <tr key={k} className="border-b border-neutral-100 last:border-0">
+                            <td className="font-bold py-1 pr-1 whitespace-nowrap align-top text-[#1C2334]" style={{ width: '55px' }}>{k}</td>
+                            <td className="py-1 align-top text-[#A0AEC0]" style={{ width: '10px' }}>:</td>
+                            <td className="py-1 pl-1 font-bold text-[#1C2334]">{v}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openCasePopup(memo); }}
+                    className="flex-shrink-0 flex items-center gap-1 text-[10px] text-[#003366] font-bold hover:text-[#004480] px-3 py-2 transition border-t border-[#D9DEE4] w-full"
+                  >
+                    <ExternalLink size={10} />
+                    View Full Details
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Action dialog */}
+      {dialog.open && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center" onClick={closeDialog}>
+          <div className="w-full max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-[#003366] px-5 py-3 rounded-t-sm">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">{dialog.title}</h3>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-[#4A5568] leading-relaxed">{dialog.message}</p>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                {dialog.showCancel && (
+                  <button
+                    onClick={closeDialog}
+                    className="px-4 py-2 text-xs font-bold uppercase tracking-wider border border-[#D9DEE4] text-[#4A5568] hover:bg-[#F4F5F7] rounded-sm"
+                  >
+                    Cancel
+                  </button>
+                )}
+                <button
+                  onClick={confirmDialogAction}
+                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-[#003366] text-white hover:bg-[#004480] rounded-sm"
+                >
+                  {dialog.confirmLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+
+      {/* ─── Floating Case Detail Popup (persists across views) ─── */}
+      {casePopup && (
+          <div
+            className="fixed bg-white border border-[#D9DEE4] shadow-2xl flex flex-col rounded-sm z-50"
+            style={{ left: popupPos.x, top: popupPos.y, width: popupSize.width, height: popupSize.height, maxWidth: '90vw', maxHeight: '90vh' }}
+          >
+            <div
+              className="bg-[#003366] px-4 py-2.5 flex items-center justify-between flex-shrink-0 cursor-move select-none rounded-t-sm"
+              onMouseDown={onDragStart}
+            >
+              <h2 className="text-xs font-bold text-white uppercase tracking-wider">
+                {casePopup.zone || 'Unknown'} Zone — Cr.No. {casePopup.crimeNo || '—'}
+              </h2>
+              <button onClick={() => setCasePopup(null)} className="text-white/50 hover:text-white" onMouseDown={(e) => e.stopPropagation()}><X size={16} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#F4F5F7]">
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Nature of Case</legend>
+                <p className="text-sm text-[#4A5568]">{casePopup.caseDetails?.natureOfCase || '—'}</p>
+              </fieldset>
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Name of the P.S., Cr. No, U/Sec & D.O.R</legend>
+                <p className="text-sm text-[#4A5568]">
+                  {casePopup.caseDetails?.psWithCrDetails || `${casePopup.policeStation || ''} PS Cr.No. ${casePopup.crimeNo || ''} U/s ${casePopup.sections || ''} ${casePopup.caseDetails?.dor ? `DOR.${casePopup.caseDetails.dor}` : ''}`}
+                </p>
+              </fieldset>
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Details of Accused</legend>
+                <div className="flex items-center gap-2 mb-2">
+                  {(casePopup.caseDetails?.numAccused ?? 0) > 0 && (
+                    <span className="text-[10px] font-bold bg-[#1B6B46] text-white px-2 py-0.5 rounded-sm">{casePopup.caseDetails!.numAccused} Accused</span>
+                  )}
+                  {(casePopup.caseDetails?.numCases ?? 0) > 0 && (
+                    <span className="text-[10px] font-bold bg-[#003366] text-white px-2 py-0.5 rounded-sm">{casePopup.caseDetails!.numCases} Cases</span>
+                  )}
+                  <span className="text-[10px] font-bold bg-[#9B2C2C] text-white px-2 py-0.5 rounded-sm">{casePopup.caseDetails?.abscondingAccused ?? 0} Absconding</span>
+                </div>
+                <p className="text-sm text-[#4A5568] whitespace-pre-wrap">{casePopup.caseDetails?.accusedParticulars || '—'}</p>
+              </fieldset>
+              <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Brief Facts</legend>
+                <p className="text-sm text-[#4A5568] whitespace-pre-wrap">{casePopup.caseDetails?.briefFacts || casePopup.briefFacts || '—'}</p>
+              </fieldset>
+              {(casePopup.caseDetails?.seizedProperty || casePopup.caseDetails?.seizedWorth) && (
+                <fieldset className="border border-[#D9DEE4] bg-white px-4 pb-3 pt-1 rounded-sm">
+                  <legend className="text-[11px] font-bold text-[#003366] uppercase tracking-wider px-1">Property Seized & Worth</legend>
+                  {casePopup.caseDetails?.seizedWorth && (
+                    <span className="inline-block text-[10px] font-bold bg-[#A66914] text-white px-2 py-0.5 mb-2 rounded-sm">Rs. {casePopup.caseDetails.seizedWorth}</span>
+                  )}
+                  <p className="text-sm text-[#4A5568] whitespace-pre-wrap">{casePopup.caseDetails?.seizedProperty || '—'}</p>
+                </fieldset>
+              )}
+            </div>
+            {/* Resize edges & corners */}
+            <div onMouseDown={onResizeStart('t')} className="absolute top-0 left-2 right-2 h-1 cursor-n-resize" />
+            <div onMouseDown={onResizeStart('b')} className="absolute bottom-0 left-2 right-2 h-1 cursor-s-resize" />
+            <div onMouseDown={onResizeStart('l')} className="absolute left-0 top-2 bottom-2 w-1 cursor-w-resize" />
+            <div onMouseDown={onResizeStart('r')} className="absolute right-0 top-2 bottom-2 w-1 cursor-e-resize" />
+            <div onMouseDown={onResizeStart('tl')} className="absolute top-0 left-0 w-2 h-2 cursor-nw-resize" />
+            <div onMouseDown={onResizeStart('tr')} className="absolute top-0 right-0 w-2 h-2 cursor-ne-resize" />
+            <div onMouseDown={onResizeStart('bl')} className="absolute bottom-0 left-0 w-2 h-2 cursor-sw-resize" />
+            <div onMouseDown={onResizeStart('br')} className="absolute bottom-0 right-0 w-2 h-2 cursor-se-resize" />
+          </div>
+      )}
+    </>
   );
 };
 

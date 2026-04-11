@@ -101,21 +101,25 @@ const Officers: React.FC = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">Officers</h1>
+      {/* Official header */}
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500 flex items-center justify-between">
+        <div>
+          <h1 className="text-sm font-bold text-white uppercase tracking-wider">Officers Register</h1>
+          <p className="text-[11px] text-blue-200 mt-0.5">Manage police officers and personnel</p>
+        </div>
         <div className="flex items-center gap-3">
           <input
             type="text"
             placeholder="Search name or badge…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="border rounded-lg px-4 py-2 text-sm w-64 focus:ring-2 focus:ring-shield-gold focus:outline-none"
+            className="border border-slate-500 bg-white/10 text-white placeholder:text-blue-200/60 px-4 py-1.5 text-xs w-56 focus:ring-2 focus:ring-amber-400 focus:outline-none"
           />
           <button
             onClick={() => setShowModal('add')}
-            className="flex items-center gap-2 bg-primary-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-primary-600 transition"
+            className="flex items-center gap-1.5 bg-amber-500 text-white px-4 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-amber-600 transition"
           >
-            <Plus size={16} /> Add Officer
+            <Plus size={14} /> Add Officer
           </button>
         </div>
       </div>
@@ -123,51 +127,51 @@ const Officers: React.FC = () => {
       {/* Add / Edit Officer Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-lg relative">
-            <button onClick={closeModal} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-              <X size={20} />
-            </button>
-            <h2 className="text-lg font-bold mb-4">{showModal === 'edit' ? 'Edit Officer' : 'Add New Officer'}</h2>
-            <form onSubmit={handleSubmit} className="space-y-3">
+          <div className="bg-white shadow-xl w-full max-w-lg">
+            <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-3 flex items-center justify-between">
+              <h2 className="text-sm font-bold text-white uppercase tracking-wider">{showModal === 'edit' ? 'Edit Officer' : 'Add New Officer'}</h2>
+              <button onClick={closeModal} className="text-blue-200 hover:text-white"><X size={18} /></button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-5 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Name *</label>
                   <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-shield-gold focus:outline-none" />
+                    className="w-full border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Badge Number *</label>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Badge Number *</label>
                   <input required value={form.badgeNumber} onChange={(e) => setForm({ ...form, badgeNumber: e.target.value })}
-                    placeholder="HCP-XXX" className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-shield-gold focus:outline-none" />
+                    placeholder="HCP-XXX" className="w-full border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Rank *</label>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Rank *</label>
                   <select required value={form.rank} onChange={(e) => setForm({ ...form, rank: e.target.value as OfficerRank })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-shield-gold focus:outline-none">
+                    className="w-full border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none">
                     {RANKS.map((r) => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Phone</label>
                   <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-shield-gold focus:outline-none" />
+                    className="w-full border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email</label>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Email</label>
                   <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-shield-gold focus:outline-none" />
+                    className="w-full border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Password</label>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Password</label>
                   <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })}
                     placeholder={showModal === 'edit' ? 'Leave blank to keep current' : 'Default: Shield@123'}
-                    className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-shield-gold focus:outline-none" />
+                    className="w-full border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 focus:outline-none" />
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={closeModal} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+                <button type="button" onClick={closeModal} className="px-4 py-2 border border-slate-300 text-sm font-bold text-slate-600 uppercase tracking-wider hover:bg-slate-50">Cancel</button>
                 <button type="submit" disabled={addMutation.isPending || editMutation.isPending}
-                  className="px-4 py-2 bg-primary-500 text-white rounded-lg text-sm font-semibold hover:bg-primary-600 disabled:opacity-50">
+                  className="px-4 py-2 bg-indigo-600 text-white text-sm font-bold uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50">
                   {(addMutation.isPending || editMutation.isPending) ? 'Saving…' : showModal === 'edit' ? 'Save Changes' : 'Add Officer'}
                 </button>
               </div>
@@ -176,52 +180,52 @@ const Officers: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr className="text-left text-gray-500">
-              <th className="px-4 py-3">Badge</th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Rank</th>
-              <th className="px-4 py-3">Phone</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 w-24">Actions</th>
+      <div className="border border-slate-200 bg-white">
+        <table className="w-full text-[13px] table-fixed">
+          <thead>
+            <tr className="bg-gradient-to-r from-[#1a2a4a] to-[#2d4a6f] text-white text-left">
+              <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider">Badge</th>
+              <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider">Name</th>
+              <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider">Rank</th>
+              <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider">Phone</th>
+              <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider">Status</th>
+              <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider w-24">Actions</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Loading…</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">Loading…</td></tr>
             ) : officers.length === 0 ? (
-              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No officers found.</td></tr>
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No officers found.</td></tr>
             ) : (
-              officers.map((o) => (
+              officers.map((o, idx) => (
                 <tr
                   key={o._id}
                   onClick={() => navigate(`/officers/${o._id}`)}
-                  className="border-t hover:bg-gray-50 cursor-pointer"
+                  className={`border-b border-slate-200 cursor-pointer hover:bg-blue-50/60 transition ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}
                 >
-                  <td className="px-4 py-3 font-mono">{o.badgeNumber}</td>
-                  <td className="px-4 py-3">{o.name}</td>
-                  <td className="px-4 py-3">{o.rank}</td>
-                  <td className="px-4 py-3">{o.phone}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5 font-mono text-slate-600">{o.badgeNumber}</td>
+                  <td className="px-4 py-2.5 font-semibold text-slate-800">{o.name}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{o.rank}</td>
+                  <td className="px-4 py-2.5 text-slate-600">{o.phone}</td>
+                  <td className="px-4 py-2.5">
                     <StatusBadge status={o.isActive ? 'ACTIVE' : 'INACTIVE'} />
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2.5">
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => handleEdit(e, o)}
-                        className="text-blue-500 hover:text-blue-700 p-1 rounded hover:bg-blue-50 transition"
+                        className="text-indigo-500 hover:text-indigo-700 p-1 hover:bg-indigo-50 transition"
                         title="Edit officer"
                       >
-                        <Pencil size={16} />
+                        <Pencil size={15} />
                       </button>
                       <button
                         onClick={(e) => handleRemove(e, o._id, o.name)}
-                        className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50 transition"
+                        className="text-red-500 hover:text-red-700 p-1 hover:bg-red-50 transition"
                         title="Remove officer"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={15} />
                       </button>
                     </div>
                   </td>
@@ -233,10 +237,12 @@ const Officers: React.FC = () => {
       </div>
 
       {total > 20 && (
-        <div className="flex justify-center gap-2 mt-4">
-          <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="px-3 py-1 border rounded disabled:opacity-50">Prev</button>
-          <span className="px-3 py-1 text-sm text-gray-500">Page {page} of {Math.ceil(total / 20)}</span>
-          <button disabled={page * 20 >= total} onClick={() => setPage(page + 1)} className="px-3 py-1 border rounded disabled:opacity-50">Next</button>
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-200">
+          <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">Page {page} of {Math.ceil(total / 20)}</span>
+          <div className="flex items-center gap-2">
+            <button disabled={page <= 1} onClick={() => setPage(page - 1)} className="px-3 py-1.5 border border-slate-300 bg-white text-[12px] font-bold text-slate-600 uppercase tracking-wider hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
+            <button disabled={page * 20 >= total} onClick={() => setPage(page + 1)} className="px-3 py-1.5 border border-slate-300 bg-white text-[12px] font-bold text-slate-600 uppercase tracking-wider hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+          </div>
         </div>
       )}
     </div>

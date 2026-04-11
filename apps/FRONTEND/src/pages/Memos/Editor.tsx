@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMemo, updateMemo, submitMemoForReview } from '../../services/endpoints';
 import MemoEditor from '../../components/MemoEditor';
-import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2, MapPin, Shield, Scale, Calendar, UserCheck, Ban } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { format } from 'date-fns';
 import type { Memo } from '../../types';
 
 const MemoEditorPage: React.FC = () => {
@@ -74,87 +75,97 @@ const MemoEditorPage: React.FC = () => {
   }
 
   const isDraft = data.status === 'DRAFT';
-  const editable = isDraft;
+  const editable = data.status === 'DRAFT' || data.status === 'PENDING_REVIEW';
 
-  const STATUS_META: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
-    DRAFT: { icon: <FileText size={14} />, label: 'Draft', color: 'bg-amber-100 text-amber-700' },
-    PENDING_REVIEW: { icon: <Clock size={14} />, label: 'Pending Review', color: 'bg-blue-100 text-blue-700' },
-    REVIEWED: { icon: <CheckCircle2 size={14} />, label: 'Reviewed', color: 'bg-indigo-100 text-indigo-700' },
-    APPROVED: { icon: <CheckCircle2 size={14} />, label: 'Approved', color: 'bg-emerald-100 text-emerald-700' },
-    SENT: { icon: <Send size={14} />, label: 'Sent', color: 'bg-teal-100 text-teal-700' },
+  const STATUS_META: Record<string, { icon: React.ReactNode; label: string; bg: string }> = {
+    DRAFT: { icon: <FileText size={12} />, label: 'Draft', bg: 'bg-amber-500 text-white' },
+    PENDING_REVIEW: { icon: <Clock size={12} />, label: 'Pending Review', bg: 'bg-blue-600 text-white' },
+    REVIEWED: { icon: <CheckCircle2 size={12} />, label: 'Reviewed', bg: 'bg-sky-500 text-white' },
+    APPROVED: { icon: <CheckCircle2 size={12} />, label: 'Approved', bg: 'bg-emerald-600 text-white' },
+    SENT: { icon: <Send size={12} />, label: 'Sent', bg: 'bg-slate-700 text-white' },
+    ON_HOLD: { icon: <Clock size={12} />, label: 'On Hold', bg: 'bg-orange-500 text-white' },
+    REJECTED: { icon: <Ban size={12} />, label: 'Rejected', bg: 'bg-red-600 text-white' },
   };
 
   const statusMeta = STATUS_META[data.status] || STATUS_META.DRAFT;
 
   return (
-    <div>
-      {/* Top bar */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="min-h-screen bg-slate-100">
+      {/* Header bar — govt theme */}
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-3.5 flex items-center justify-between border-l-4 border-amber-500 -mx-6 -mt-6">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+          <button onClick={() => navigate(-1)} className="p-1.5 hover:bg-white/10 text-blue-200 hover:text-white transition">
             <ArrowLeft size={18} />
           </button>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-gray-800">
+            <div className="flex items-center gap-3">
+              <h1 className="text-sm font-bold text-white uppercase tracking-wider">
                 {data.policeStation || 'Unknown'} PS — Cr.No. {data.crimeNo || '—'}
               </h1>
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${statusMeta.color}`}>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${statusMeta.bg}`}>
                 {statusMeta.icon}
                 {statusMeta.label}
               </span>
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {data.reference}
-            </p>
+            <p className="text-[11px] text-blue-200 mt-0.5">{data.reference}</p>
           </div>
         </div>
 
-        {isDraft && (
+        {editable && (
           <div className="flex items-center gap-2">
             <button
               onClick={() => saveMutation.mutate()}
               disabled={!hasChanges || saveMutation.isPending}
-              className="flex items-center gap-1.5 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 transition"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-white/10 border border-white/20 text-white text-xs font-bold uppercase tracking-wider hover:bg-white/20 disabled:opacity-40 transition"
             >
-              <Save size={14} />
+              <Save size={13} />
               {saveMutation.isPending ? 'Saving…' : 'Save Draft'}
             </button>
             <button
               onClick={() => submitMutation.mutate()}
               disabled={submitMutation.isPending}
-              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 transition"
             >
-              <Send size={14} />
+              <Send size={13} />
               {submitMutation.isPending ? 'Submitting…' : 'Submit for Review'}
             </button>
           </div>
         )}
       </div>
 
-      {/* Info bar */}
-      <div className="flex items-center gap-4 mb-4 text-xs text-gray-500 bg-gray-50 rounded-lg p-3">
-        <span><strong>Zone:</strong> {data.zone || '—'}</span>
-        <span><strong>Police Station:</strong> {data.policeStation || '—'}</span>
-        <span><strong>Sections:</strong> u/s {data.sections || '—'}</span>
+      {/* Info strip — colored chips */}
+      <div className="bg-white border-b-2 border-indigo-100 px-5 py-2.5 flex items-center gap-3 text-xs shadow-sm -mx-6">
+        <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-800 px-3 py-1 border border-indigo-200 font-semibold"><MapPin size={12} />{data.zone || '—'}</span>
+        <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 px-3 py-1 border border-blue-200 font-semibold"><Shield size={12} />{data.policeStation || '—'} PS</span>
+        <span className="inline-flex items-center gap-1.5 bg-slate-50 text-slate-700 px-3 py-1 border border-slate-200 font-semibold"><Scale size={12} />u/s {data.sections || '—'}</span>
+        <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 px-3 py-1 border border-amber-200 font-semibold"><Calendar size={12} />{format(new Date(data.date), 'dd MMM yyyy')}</span>
         {data.recipientName && (
-          <span><strong>To:</strong> {data.recipientDesignation}, {data.recipientName}</span>
+          <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-3 py-1 border border-emerald-200 font-bold">
+            <UserCheck size={12} />Issued To: {data.recipientDesignation}, {data.recipientName}
+          </span>
         )}
       </div>
 
-      {/* Editor — only mount after content is loaded so TipTap initializes with real HTML */}
-      {content ? (
-        <MemoEditor content={content} onUpdate={handleContentUpdate} editable={editable} />
-      ) : (
-        <div className="border border-gray-200 rounded-xl bg-gray-100 flex items-center justify-center" style={{ minHeight: 600 }}>
-          <Loader2 size={24} className="animate-spin text-gray-400" />
+      {/* Memo editor */}
+      <div className="mt-5 mx-0 mb-4 bg-white border border-slate-200 shadow-md">
+        <div className="bg-indigo-600 px-4 py-1.5">
+          <p className="text-[10px] font-bold text-white uppercase tracking-wider">Memorandum Document</p>
         </div>
-      )}
+        <div className="p-2">
+          {content ? (
+            <MemoEditor content={content} onUpdate={handleContentUpdate} editable={editable} />
+          ) : (
+            <div className="border border-gray-200 bg-gray-100 flex items-center justify-center" style={{ minHeight: 600 }}>
+              <Loader2 size={24} className="animate-spin text-gray-400" />
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Unsaved changes warning */}
-      {hasChanges && isDraft && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+      {hasChanges && editable && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-300 px-3 py-2 font-semibold">
+          <div className="w-1.5 h-1.5 bg-amber-500 animate-pulse" />
           You have unsaved changes
         </div>
       )}

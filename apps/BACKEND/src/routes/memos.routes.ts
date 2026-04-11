@@ -103,8 +103,7 @@ function generateMemoHTML(caseData: any, psName: string, zoneName: string, divis
 <p style="text-align: right">Commissioner of Police,</p>
 <p style="text-align: right">Hyderabad City</p>
 <p>&nbsp;</p>
-<p>No.______&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Dated: ${memoDate}</p>
-<p>&nbsp;</p>
+<p>No.______&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Dated: ${memoDate}</p>
 <p style="text-align: center"><strong><u>MEMORANDUM</u></strong></p>
 <p>&nbsp;</p>
 <table><tbody><tr><td><p><strong>Sub:</strong></p></td><td><p>Hyderabad City Police- You are here by advised to strengthen your information – Regarding</p></td></tr><tr><td><p><strong>Ref:</strong></p></td><td><p>Crime No. ${crNo} u/s ${sections} of ${psName} PS, dated ${dor}.</p></td></tr></tbody></table>
@@ -193,8 +192,8 @@ router.post('/generate', authenticate, async (req: Request, res: Response) => {
       }
     }
 
-    // Format date as D-M-YYYY
-    const memoDate = new Date();
+    // Use DSR raided date (not current date)
+    const memoDate = dsr.date ? new Date(dsr.date) : new Date();
     const dateStr = `${memoDate.getDate()}-${memoDate.getMonth() + 1}-${memoDate.getFullYear()}`;
 
     const subject = 'Hyderabad City Police- You are here by advised to strengthen your information – Regarding';
@@ -279,7 +278,10 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
     const { status, dsrId, page = '1', limit = '20' } = req.query;
     const filter: any = {};
-    if (status) filter.status = status;
+    if (status) {
+      const statuses = (status as string).split(',');
+      filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+    }
     if (dsrId) filter.dsrId = dsrId;
 
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
@@ -295,7 +297,47 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       Memo.countDocuments(filter),
     ]);
 
-    res.json({ data: memos, pagination: { page: parseInt(page as string), limit: parseInt(limit as string), total } });
+    // Enrich each memo with its DSR parsed case details
+    const enriched = await Promise.all(
+      memos.map(async (memo: any) => {
+        try {
+          const dsr = await DSR.findById(memo.dsrId)
+            .populate('parsedCases.matchedSHOId', 'name badgeNumber rank')
+            .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank')
+            .lean();
+          if (dsr) {
+            const pc = (dsr as any).parsedCases?.find(
+              (c: any) => String(c._id) === String(memo.caseId)
+            );
+            if (pc) {
+              memo.caseDetails = {
+                natureOfCase: pc.natureOfCase || pc.crimeHead || '',
+                sector: pc.sector || '',
+                actionTakenBy: pc.actionTakenBy || '',
+                socialViceType: pc.socialViceType || '',
+                sho: pc.matchedSHOId || null,
+                si: pc.matchedOfficerId || null,
+                accusedParticulars: pc.accusedParticulars || pc.accusedDetails || '',
+                briefFacts: pc.briefFacts || '',
+                seizedProperty: pc.seizedProperty || '',
+                seizedWorth: pc.seizedWorth || '',
+                numAccused: pc.numAccused || 0,
+                numCases: pc.numCases || 0,
+                abscondingAccused: pc.abscondingAccused || 0,
+                psWithCrDetails: pc.psWithCrDetails || '',
+                dor: pc.dor || '',
+                warningGenerated: pc.warningGenerated || false,
+              };
+              memo.raidedDate = dsr.date;
+              memo.raidedBy = (dsr as any).raidedBy || '';
+            }
+          }
+        } catch { /* skip enrichment on error */ }
+        return memo;
+      })
+    );
+
+    res.json({ data: enriched, pagination: { page: parseInt(page as string), limit: parseInt(limit as string), total } });
   } catch {
     res.status(500).json({ error: 'Failed to fetch memos' });
   }
@@ -378,22 +420,59 @@ router.put('/:id/assign', authenticate, async (req: Request, res: Response) => {
     memo.recipientId = officer._id as any;
     memo.recipientName = officer.name;
     memo.recipientDesignation = recipientType === 'SHO' ? 'Inspector of Police/SHO' : 'Sub-Inspector of Police';
-    memo.reviewedBy = req.user!.id as any;
-    memo.reviewedAt = new Date();
-    memo.status = MemoStatus.REVIEWED;
 
-    // Update the HTML content's "To" field
-    const toSection = `The ${memo.recipientDesignation},\n${officer.name}, ${memo.recipientPS || memo.policeStation} PS, Hyderabad,`;
-    memo.content = memo.content
-      .replace(
-        /The Inspector of Police\/SHO,/g,
-        `The ${memo.recipientDesignation},`
-      );
+    // Update the HTML content's "To" block with officer name and designation
+    const psName = memo.recipientPS || memo.policeStation || '';
+    const newToBlock = `<p>To</p>\n<p>${officer.name},</p>\n<p>The ${memo.recipientDesignation},</p>\n<p>${psName} PS, Hyderabad,</p>`;
+
+    // Replace the To block — handles original template AND re-assignments
+    // Original: <p>To</p> <p>The Inspector of Police/SHO,</p> <p>PS Name PS, Hyderabad,</p>
+    // After assign: <p>To</p> <p>OfficerName,</p> <p>The Designation,</p> <p>PS Name PS, Hyderabad,</p>
+    memo.content = memo.content.replace(
+      /<p>To<\/p>\s*(?:<p>[^<]+,<\/p>\s*)?<p>The (?:Inspector of Police\/SHO|Sub-Inspector of Police),<\/p>\s*<p>[^<]*PS, Hyderabad,<\/p>/,
+      newToBlock
+    );
 
     await memo.save();
     res.json({ data: memo });
   } catch {
     res.status(500).json({ error: 'Failed to assign recipient' });
+  }
+});
+
+// ── PUT /api/memos/:id/hold — CP puts memo on hold ──────────────────────────
+
+router.put('/:id/hold', authenticate, async (req: Request, res: Response) => {
+  try {
+    const memo = await Memo.findById(req.params.id);
+    if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
+
+    memo.status = MemoStatus.ON_HOLD;
+    memo.reviewedBy = req.user!.id as any;
+    memo.reviewedAt = new Date();
+    memo.remarks = req.body.remarks || 'Put on hold by CP';
+    await memo.save();
+    res.json({ data: memo });
+  } catch {
+    res.status(500).json({ error: 'Failed to hold memo' });
+  }
+});
+
+// ── PUT /api/memos/:id/reject — CP rejects memo ─────────────────────────────
+
+router.put('/:id/reject', authenticate, async (req: Request, res: Response) => {
+  try {
+    const memo = await Memo.findById(req.params.id);
+    if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
+
+    memo.status = MemoStatus.REJECTED;
+    memo.reviewedBy = req.user!.id as any;
+    memo.reviewedAt = new Date();
+    memo.remarks = req.body.remarks || 'Rejected by CP';
+    await memo.save();
+    res.json({ data: memo });
+  } catch {
+    res.status(500).json({ error: 'Failed to reject memo' });
   }
 });
 
@@ -403,8 +482,12 @@ router.put('/:id/approve', authenticate, async (req: Request, res: Response) => 
   try {
     const memo = await Memo.findById(req.params.id);
     if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
-    if (memo.status !== MemoStatus.REVIEWED && memo.status !== MemoStatus.PENDING_REVIEW) {
-      res.status(400).json({ error: 'Memo must be reviewed before approval' });
+    if (
+      memo.status !== MemoStatus.REVIEWED &&
+      memo.status !== MemoStatus.PENDING_REVIEW &&
+      memo.status !== MemoStatus.ON_HOLD
+    ) {
+      res.status(400).json({ error: 'Memo must be pending, reviewed, or on hold before approval' });
       return;
     }
 

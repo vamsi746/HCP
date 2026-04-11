@@ -1,11 +1,12 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
+import fs from 'fs';
 import { DSR, DSRStatus, ForceType } from '../models';
 import { authenticate } from '../middleware/auth';
 import { requireMinRank } from '../middleware/rbac';
-import { OfficerRank, Officer, PoliceStation, SectorOfficer, Sector } from '../models';
+import { OfficerRank, Officer, PoliceStation, SectorOfficer, Sector, Memo } from '../models';
 import { upload } from '../middleware/upload';
-import { extractTextFromDocx, extractTextFromDoc, extractTableRowsFromDocx, parseTaskForceDSR, parseStructuredDSR, matchPoliceStation } from '../services/dsr-parser';
+import { extractTextFromDocx, extractTextFromDoc, extractFullHtmlFromDocx, extractTableRowsFromDocx, parseTaskForceDSR, parseStructuredDSR, matchPoliceStation, convertDocToDocx } from '../services/dsr-parser';
 
 const router = Router();
 
@@ -34,7 +35,20 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
       DSR.countDocuments(filter),
     ]);
 
-    res.json({ data: dsrs, pagination: { page: parseInt(page as string), limit: parseInt(limit as string), total } });
+    // Attach memo counts per DSR
+    const dsrIds = dsrs.map((d: any) => d._id);
+    const memoCounts = await Memo.aggregate([
+      { $match: { dsrId: { $in: dsrIds } } },
+      { $group: { _id: '$dsrId', count: { $sum: 1 } } },
+    ]);
+    const memoCountMap: Record<string, number> = {};
+    for (const mc of memoCounts) memoCountMap[mc._id.toString()] = mc.count;
+    const dsrsWithMemo = dsrs.map((d: any) => ({
+      ...d,
+      memoGeneratedCount: memoCountMap[d._id.toString()] || 0,
+    }));
+
+    res.json({ data: dsrsWithMemo, pagination: { page: parseInt(page as string), limit: parseInt(limit as string), total } });
   } catch {
     res.status(500).json({ error: 'Failed to fetch DSRs' });
   }
@@ -62,7 +76,21 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
       .populate('parsedCases.matchedSectorId', 'name')
       .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')        .populate('parsedCases.matchedSHOId', 'name badgeNumber rank phone')      .lean();
     if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
-    res.json({ data: dsr });
+
+    // Attach memo info per parsed case
+    const memos = await Memo.find({ dsrId: dsr._id }).select('caseId status _id').lean();
+    const memoMap: Record<string, { memoId: string; memoStatus: string }> = {};
+    for (const m of memos) memoMap[m.caseId.toString()] = { memoId: m._id.toString(), memoStatus: m.status };
+    const dsrObj: any = dsr;
+    if (dsrObj.parsedCases) {
+      dsrObj.parsedCases = dsrObj.parsedCases.map((c: any) => ({
+        ...c,
+        memoId: memoMap[c._id.toString()]?.memoId || null,
+        memoStatus: memoMap[c._id.toString()]?.memoStatus || null,
+      }));
+    }
+
+    res.json({ data: dsrObj });
   } catch {
     res.status(500).json({ error: 'Failed to fetch DSR' });
   }
@@ -82,28 +110,58 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
 
     const ext = path.extname(file.originalname).toLowerCase();
 
+    // Save uploaded file to disk for later retrieval
+    const uploadsDir = path.join(__dirname, '..', '..', 'uploads', 'dsr');
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+    const safeFileName = `${Date.now()}-${file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const filePath = path.join(uploadsDir, safeFileName);
+    fs.writeFileSync(filePath, file.buffer);
+
     // Create DSR record
     const dsr = await DSR.create({
       date: req.body.date || new Date(),
       forceType,
       fileName: file.originalname,
       fileType: file.mimetype,
+      filePath: `uploads/dsr/${safeFileName}`,
       processingStatus: DSRStatus.PROCESSING,
       uploadedBy: req.user!.id,
     });
 
-    // Parse the document from memory buffer (no file stored on disk)
+    // Parse the document
     try {
       let rawText = '';
       let tableRows: string[][] = [];
+      let documentHtml = '';
 
       if (ext === '.docx') {
         rawText = await extractTextFromDocx(file.buffer);
         tableRows = await extractTableRowsFromDocx(file.buffer);
+        documentHtml = await extractFullHtmlFromDocx(file.buffer);
       } else if (ext === '.doc') {
-        rawText = await extractTextFromDoc(file.buffer);
+        // Convert .doc → .docx for full table structure + document preview
+        console.log('[ROUTE] Converting .doc to .docx...');
+        const docxBuffer = await convertDocToDocx(file.buffer);
+        if (docxBuffer) {
+          console.log('[ROUTE] .doc → .docx conversion succeeded');
+          rawText = await extractTextFromDocx(docxBuffer);
+          tableRows = await extractTableRowsFromDocx(docxBuffer);
+          documentHtml = await extractFullHtmlFromDocx(docxBuffer);
+          // Save the converted .docx alongside original for docx-preview rendering
+          const docxFileName = safeFileName.replace(/\.doc$/i, '.docx');
+          const docxPath = path.join(uploadsDir, docxFileName);
+          fs.writeFileSync(docxPath, docxBuffer);
+          dsr.filePath = `uploads/dsr/${docxFileName}`;
+          dsr.fileType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          await dsr.save();
+        } else {
+          console.log('[ROUTE] .doc → .docx conversion failed, falling back to text extraction');
+          rawText = await extractTextFromDoc(file.buffer);
+          documentHtml = `<pre style="white-space:pre-wrap;font-family:serif;font-size:12pt;line-height:1.6">${rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+        }
       } else if (ext === '.txt') {
         rawText = file.buffer.toString('utf8');
+        documentHtml = `<pre style="white-space:pre-wrap;font-family:serif;font-size:12pt;line-height:1.6">${rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
       } else {
         dsr.processingStatus = DSRStatus.MANUAL_REVIEW;
         dsr.missingFields = ['Unsupported file format — only .doc, .docx and .txt are supported for auto-parsing'];
@@ -266,6 +324,7 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
 
       // Update DSR with parsed data
       dsr.rawText = parseResult.rawText;
+      dsr.documentHtml = documentHtml || undefined;
       dsr.parsedCases = parsedCases as any;
       dsr.totalCases = parsedCases.length;
       dsr.processingStatus = DSRStatus.COMPLETED;
@@ -277,11 +336,17 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
       }
 
       if (parseResult.reportDate) {
+        console.log('[ROUTE] reportDate from parser:', parseResult.reportDate);
         const parts = parseResult.reportDate.split(/[-/.]/);
         if (parts.length === 3) {
           const d = new Date(`${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`);
-          if (!isNaN(d.getTime())) dsr.date = d;
+          if (!isNaN(d.getTime())) {
+            dsr.date = d;
+            console.log('[ROUTE] Updated DSR date to raid date:', d.toISOString());
+          }
         }
+      } else {
+        console.log('[ROUTE] No reportDate extracted from document');
       }
 
       await dsr.save();
@@ -307,6 +372,32 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
   } catch (outerErr: any) {
     console.error('[ROUTE] OUTER ERROR:', outerErr.message, outerErr.stack);
     res.status(500).json({ error: 'Upload failed' });
+  }
+});
+
+// GET /api/dsr/:id/document — full document HTML for rendering
+router.get('/:id/document', authenticate, async (req: Request, res: Response) => {
+  try {
+    const dsr = await DSR.findById(req.params.id).select('documentHtml fileName').lean();
+    if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
+    res.json({ data: { documentHtml: dsr.documentHtml || '', fileName: dsr.fileName } });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch document' });
+  }
+});
+
+// GET /api/dsr/:id/download — download original uploaded file
+router.get('/:id/download', authenticate, async (req: Request, res: Response) => {
+  try {
+    const dsr = await DSR.findById(req.params.id).select('filePath fileName fileType').lean();
+    if (!dsr || !dsr.filePath) { res.status(404).json({ error: 'File not found' }); return; }
+    const absPath = path.join(__dirname, '..', '..', dsr.filePath);
+    if (!fs.existsSync(absPath)) { res.status(404).json({ error: 'File not found on disk' }); return; }
+    res.setHeader('Content-Disposition', `attachment; filename="${dsr.fileName || 'document'}"`);
+    if (dsr.fileType) res.setHeader('Content-Type', dsr.fileType);
+    fs.createReadStream(absPath).pipe(res);
+  } catch {
+    res.status(500).json({ error: 'Failed to download file' });
   }
 });
 

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { getMemos } from '../services/endpoints';
 import {
   LayoutDashboard,
   Users,
@@ -28,6 +30,16 @@ const SPRING = 'cubic-bezier(.34,1.56,.64,1)';
 
 const Dock: React.FC = () => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+
+  const { data: pendingData } = useQuery({
+    queryKey: ['memos-pending-count'],
+    queryFn: async () => {
+      const res = await getMemos({ status: 'PENDING_REVIEW', limit: 1 });
+      return res.data;
+    },
+    refetchInterval: 30000,
+  });
+  const pendingCount = pendingData?.pagination?.total ?? 0;
 
   const getScale = (index: number) => {
     if (hoveredIndex === null) return 1;
@@ -73,26 +85,33 @@ const Dock: React.FC = () => {
                     transition: `transform 0.3s ${SPRING}`,
                   }}
                 >
-                  <div
-                    className={`flex items-center justify-center rounded-2xl ${
-                      isActive
-                        ? `bg-gradient-to-br ${color} text-white shadow-lg`
-                        : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
-                    }`}
-                    style={{
-                      width: ICON_BASE * scale,
-                      height: ICON_BASE * scale,
-                      transition: `width 0.3s ${SPRING}, height 0.3s ${SPRING}, box-shadow 0.2s ease`,
-                    }}
-                  >
-                    <Icon
-                      strokeWidth={isActive ? 2.2 : 1.8}
+                  <div className="relative">
+                    <div
+                      className={`flex items-center justify-center rounded-2xl ${
+                        isActive
+                          ? `bg-gradient-to-br ${color} text-white shadow-lg`
+                          : 'bg-gray-100 text-gray-500 group-hover:bg-gray-200'
+                      }`}
                       style={{
-                        width: 18 * scale,
-                        height: 18 * scale,
-                        transition: `width 0.3s ${SPRING}, height 0.3s ${SPRING}`,
+                        width: ICON_BASE * scale,
+                        height: ICON_BASE * scale,
+                        transition: `width 0.3s ${SPRING}, height 0.3s ${SPRING}, box-shadow 0.2s ease`,
+                      }}
+                    >
+                      <Icon
+                        strokeWidth={isActive ? 2.2 : 1.8}
+                        style={{
+                          width: 18 * scale,
+                          height: 18 * scale,
+                          transition: `width 0.3s ${SPRING}, height 0.3s ${SPRING}`,
                       }}
                     />
+                  </div>
+                    {to === '/review' && pendingCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 shadow-sm border-2 border-white">
+                        {pendingCount > 99 ? '99+' : pendingCount}
+                      </span>
+                    )}
                   </div>
                   <span
                     className={`mt-0.5 font-medium text-center leading-tight min-h-[22px] flex items-start justify-center ${

@@ -121,6 +121,8 @@ export interface ParsedCase {
   extractedLocations: ExtractedLocation[];
   warningGenerated: boolean;
   warningId?: string;
+  memoId?: string | null;
+  memoStatus?: string | null;
 }
 
 export interface DSR {
@@ -129,9 +131,12 @@ export interface DSR {
   forceType: ForceType;
   raidedBy?: string;
   fileName?: string;
+  filePath?: string;
+  documentHtml?: string;
   processingStatus: DSRStatus;
   parsedCases?: ParsedCase[];
   totalCases: number;
+  memoGeneratedCount?: number;
   uploadedBy?: { _id: string; name: string; badgeNumber: string } | string;
   createdAt: string;
 }
@@ -220,7 +225,7 @@ export interface MappingZone extends Zone {
 }
 
 // Memo types
-export type MemoStatus = 'DRAFT' | 'PENDING_REVIEW' | 'REVIEWED' | 'APPROVED' | 'SENT';
+export type MemoStatus = 'DRAFT' | 'PENDING_REVIEW' | 'REVIEWED' | 'APPROVED' | 'SENT' | 'ON_HOLD' | 'REJECTED';
 
 export interface Memo {
   _id: string;
@@ -254,6 +259,27 @@ export interface Memo {
   remarks?: string;
   createdAt: string;
   updatedAt: string;
+  // Enriched from DSR parsed case
+  raidedDate?: string;
+  raidedBy?: string;
+  caseDetails?: {
+    natureOfCase: string;
+    sector: string;
+    actionTakenBy: string;
+    socialViceType: string;
+    sho: { _id: string; name: string; badgeNumber: string; rank: string } | null;
+    si: { _id: string; name: string; badgeNumber: string; rank: string } | null;
+    accusedParticulars: string;
+    briefFacts: string;
+    seizedProperty: string;
+    seizedWorth: string;
+    numAccused: number;
+    numCases: number;
+    abscondingAccused: number;
+    psWithCrDetails: string;
+    dor: string;
+    warningGenerated: boolean;
+  };
 }
 
 export interface PaginatedResponse<T> {
