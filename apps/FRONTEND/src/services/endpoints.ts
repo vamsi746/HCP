@@ -1,8 +1,8 @@
 import api from './api';
 
 // Auth
-export const login = (badgeNumber: string, password: string) =>
-  api.post('/auth/login', { badgeNumber, password });
+export const login = (email: string, password: string) =>
+  api.post('/auth/login', { email, password });
 
 export const logout = () => api.post('/auth/logout');
 
@@ -112,6 +112,9 @@ export const generateMemo = (data: { dsrId: string; caseId: string }) =>
 
 export const getMemos = (params?: Record<string, unknown>) =>
   api.get('/memos', { params });
+
+export const getMemoCounts = (params?: Record<string, unknown>) =>
+  api.get('/memos/counts', { params });
 
 export const getMemo = (id: string) => api.get(`/memos/${id}`);
 

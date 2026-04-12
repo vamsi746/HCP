@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import mongoose from 'mongoose';
 import { Memo, MemoStatus, DSR, Officer, PoliceStation, Zone, Division, Circle, SectorOfficer } from '../models';
 import { Sector } from '../models/Sector';
 import { authenticate } from '../middleware/auth';
@@ -276,13 +277,45 @@ router.get('/case-officers/:psId', authenticate, async (req: Request, res: Respo
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { status, dsrId, page = '1', limit = '20' } = req.query;
+    const { status, dsrId, page = '1', limit = '20', zoneId, psId, dateFrom, dateTo, sector } = req.query;
     const filter: any = {};
     if (status) {
       const statuses = (status as string).split(',');
       filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
     }
     if (dsrId) filter.dsrId = dsrId;
+    if (zoneId) filter.zoneId = zoneId;
+    if (psId) filter.psId = psId;
+    if (dateFrom || dateTo) {
+      filter.date = {};
+      if (dateFrom) filter.date.$gte = new Date(dateFrom as string);
+      if (dateTo) {
+        const end = new Date(dateTo as string);
+        end.setHours(23, 59, 59, 999);
+        filter.date.$lte = end;
+      }
+    }
+
+    // Sector filter: sector lives in DSR parsedCases, so pre-query matching caseIds
+    if (sector) {
+      const dsrs = await DSR.find(
+        { 'parsedCases.sector': { $regex: new RegExp(`^${(sector as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+        { 'parsedCases._id': 1, 'parsedCases.sector': 1 }
+      ).lean();
+      const validCaseIds: string[] = [];
+      for (const dsr of dsrs) {
+        for (const pc of (dsr as any).parsedCases || []) {
+          if (pc.sector && (pc.sector as string).toLowerCase() === (sector as string).toLowerCase()) {
+            validCaseIds.push(String(pc._id));
+          }
+        }
+      }
+      if (validCaseIds.length > 0) {
+        filter.caseId = { $in: validCaseIds };
+      } else {
+        return res.json({ data: [], pagination: { page: parseInt(page as string), limit: parseInt(limit as string), total: 0 } });
+      }
+    }
 
     const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
     const [memos, total] = await Promise.all([
@@ -340,6 +373,61 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
     res.json({ data: enriched, pagination: { page: parseInt(page as string), limit: parseInt(limit as string), total } });
   } catch {
     res.status(500).json({ error: 'Failed to fetch memos' });
+  }
+});
+
+// ── GET /api/memos/counts — Per-status counts with filters ──────────────────
+
+router.get('/counts', authenticate, async (req: Request, res: Response) => {
+  try {
+    const { zoneId, psId, dateFrom, dateTo, sector } = req.query;
+    const filter: any = {};
+    if (zoneId) filter.zoneId = new mongoose.Types.ObjectId(zoneId as string);
+    if (psId) filter.psId = new mongoose.Types.ObjectId(psId as string);
+    if (dateFrom || dateTo) {
+      filter.date = {};
+      if (dateFrom) filter.date.$gte = new Date(dateFrom as string);
+      if (dateTo) {
+        const end = new Date(dateTo as string);
+        end.setHours(23, 59, 59, 999);
+        filter.date.$lte = end;
+      }
+    }
+
+    // Sector filter: sector lives in DSR parsedCases, so pre-query matching caseIds
+    // Note: caseId is stored as String in Memo schema, so keep as strings
+    if (sector) {
+      const dsrs = await DSR.find(
+        { 'parsedCases.sector': { $regex: new RegExp(`^${(sector as string).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+        { 'parsedCases._id': 1, 'parsedCases.sector': 1 }
+      ).lean();
+      const validCaseIds: string[] = [];
+      for (const dsr of dsrs) {
+        for (const pc of (dsr as any).parsedCases || []) {
+          if (pc.sector && (pc.sector as string).toLowerCase() === (sector as string).toLowerCase()) {
+            validCaseIds.push(String(pc._id));
+          }
+        }
+      }
+      if (validCaseIds.length > 0) {
+        filter.caseId = { $in: validCaseIds };
+      } else {
+        return res.json({ data: {} });
+      }
+    }
+
+    const pipeline: any[] = [];
+    if (Object.keys(filter).length > 0) pipeline.push({ $match: filter });
+    pipeline.push({ $group: { _id: '$status', count: { $sum: 1 } } });
+
+    const results = await Memo.aggregate(pipeline);
+    const counts: Record<string, number> = {};
+    for (const r of results) {
+      counts[r._id] = r.count;
+    }
+    res.json({ data: counts });
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch memo counts' });
   }
 });
 
@@ -434,7 +522,12 @@ router.put('/:id/assign', authenticate, async (req: Request, res: Response) => {
     );
 
     await memo.save();
-    res.json({ data: memo });
+    const populated = await Memo.findById(memo._id)
+      .populate('generatedBy', 'name badgeNumber rank')
+      .populate('reviewedBy', 'name badgeNumber rank')
+      .populate('recipientId', 'name badgeNumber rank phone')
+      .lean();
+    res.json({ data: populated });
   } catch {
     res.status(500).json({ error: 'Failed to assign recipient' });
   }

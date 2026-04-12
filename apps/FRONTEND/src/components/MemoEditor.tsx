@@ -186,6 +186,12 @@ const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = t
     if (editor) editor.setEditable(editable);
   }, [editor, editable]);
 
+  useEffect(() => {
+    if (editor && content !== undefined && editor.getHTML() !== content) {
+      editor.commands.setContent(content || '', { emitUpdate: false });
+    }
+  }, [editor, content]);
+
   const handleImageUpload = useCallback(() => {
     fileInputRef.current?.click();
   }, []);

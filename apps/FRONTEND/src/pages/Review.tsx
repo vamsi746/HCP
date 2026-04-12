@@ -1,11 +1,13 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers } from '../services/endpoints';
+import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers, getHierarchy, getMemoCounts } from '../services/endpoints';
 import MemoEditor from '../components/MemoEditor';
-import { Eye, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, ExternalLink, AlertTriangle, Users, Briefcase, Scale } from 'lucide-react';
+import FilterDropdown from '../components/FilterDropdown';
+import { Fullscreen, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, Maximize2, AlertTriangle, Users, Briefcase, Scale, Filter, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import type { Memo, MemoStatus } from '../types';
+import MemoPrintButton from '../components/MemoPrintButton';
 
 const TABS: { key: string; label: string; disabled?: boolean }[] = [
   { key: 'PENDING_REVIEW', label: 'Pending' },
@@ -41,6 +43,97 @@ const Review: React.FC = () => {
   const [popupPos, setPopupPos] = useState({ x: -1, y: -1 });
   const interacting = useRef<'drag' | 'resize' | null>(null);
   const startRef = useRef({ mx: 0, my: 0, x: 0, y: 0, w: 0, h: 0 });
+
+  // Filter state
+  const [filterZoneId, setFilterZoneId] = useState('');
+  const [filterPsId, setFilterPsId] = useState('');
+  const [filterSector, setFilterSector] = useState('');
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+
+  // Hierarchy for cascading dropdowns
+  const { data: hierarchyData } = useQuery({
+    queryKey: ['hierarchy'],
+    queryFn: async () => { const res = await getHierarchy(); return res.data.data; },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Derive PS and sector lists from hierarchy
+  const allStations = React.useMemo(() => {
+    if (!hierarchyData) return [];
+    const stations: { _id: string; name: string; zoneId: string }[] = [];
+    for (const zone of hierarchyData) {
+      for (const div of zone.divisions || []) {
+        for (const circle of div.circles || []) {
+          for (const station of circle.stations || []) {
+            stations.push({ _id: station._id, name: station.name, zoneId: zone._id });
+          }
+        }
+      }
+    }
+    return stations;
+  }, [hierarchyData]);
+
+  const filteredStations = filterZoneId ? allStations.filter((s) => s.zoneId === filterZoneId) : allStations;
+
+  const allSectors = React.useMemo(() => {
+    if (!hierarchyData) return [];
+    const sectors: { _id: string; name: string; psId: string; zoneId: string }[] = [];
+    for (const zone of hierarchyData) {
+      for (const div of zone.divisions || []) {
+        for (const circle of div.circles || []) {
+          for (const station of circle.stations || []) {
+            for (const sec of station.sectors || []) {
+              if (sec.name && sec.name !== 'Sector 0') {
+                sectors.push({ _id: sec._id, name: sec.name, psId: station._id, zoneId: zone._id });
+              }
+            }
+          }
+        }
+      }
+    }
+    return sectors;
+  }, [hierarchyData]);
+
+  const sectorList = React.useMemo(() => {
+    let sectors = allSectors;
+    if (filterPsId) sectors = allSectors.filter((s) => s.psId === filterPsId);
+    else if (filterZoneId) sectors = allSectors.filter((s) => s.zoneId === filterZoneId);
+    // Deduplicate by name
+    const seen = new Set<string>();
+    return sectors.filter((s) => {
+      if (seen.has(s.name)) return false;
+      seen.add(s.name);
+      return true;
+    }).sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  }, [allSectors, filterPsId, filterZoneId]);
+
+  const hasActiveFilters = filterZoneId || filterPsId || filterSector || filterDateFrom || filterDateTo;
+
+  const onZoneChange = (v: string) => {
+    setFilterZoneId(v);
+    if (v && filterPsId) {
+      const ps = allStations.find((s) => s._id === filterPsId);
+      if (ps && ps.zoneId !== v) { setFilterPsId(''); setFilterSector(''); }
+    }
+  };
+
+  const onPsChange = (v: string) => {
+    setFilterPsId(v);
+    if (v) {
+      const ps = allStations.find((s) => s._id === v);
+      if (ps && !filterZoneId) setFilterZoneId(ps.zoneId);
+      if (ps && filterZoneId && ps.zoneId !== filterZoneId) setFilterZoneId(ps.zoneId);
+    }
+  };
+
+  const clearFilters = () => {
+    setFilterZoneId('');
+    setFilterPsId('');
+    setFilterSector('');
+    setFilterDateFrom('');
+    setFilterDateTo('');
+  };
 
   const onDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -88,21 +181,49 @@ const Review: React.FC = () => {
   }, [popupSize]);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['memos-review', tab],
+    queryKey: ['memos-review', tab, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo],
     queryFn: async () => {
       if (tab === 'COMPLIED') {
         return { data: [], pagination: { page: 1, limit: 50, total: 0 } };
       }
-      const res = await getMemos({ status: tab, limit: 50 });
+      const params: Record<string, unknown> = { status: tab, limit: 50 };
+      if (filterZoneId) params.zoneId = filterZoneId;
+      if (filterPsId) params.psId = filterPsId;
+      if (filterSector) params.sector = filterSector;
+      if (filterDateFrom) params.dateFrom = filterDateFrom;
+      if (filterDateTo) params.dateTo = filterDateTo;
+      const res = await getMemos(params);
       return res.data;
     },
   });
+
+  // Live counts for all tabs
+  const { data: countsData } = useQuery({
+    queryKey: ['memos-review-counts', filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo],
+    queryFn: async () => {
+      const params: Record<string, unknown> = {};
+      if (filterZoneId) params.zoneId = filterZoneId;
+      if (filterPsId) params.psId = filterPsId;
+      if (filterSector) params.sector = filterSector;
+      if (filterDateFrom) params.dateFrom = filterDateFrom;
+      if (filterDateTo) params.dateTo = filterDateTo;
+      const res = await getMemoCounts(params);
+      return res.data.data as Record<string, number>;
+    },
+  });
+
+  const getTabCount = (tabKey: string): number => {
+    if (!countsData) return 0;
+    const statuses = tabKey.split(',');
+    return statuses.reduce((sum, s) => sum + (countsData[s] || 0), 0);
+  };
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => approveMemo(id),
     onSuccess: () => {
       toast.success('Memo approved');
       queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos-review-counts'] });
       setMemoDetail(null);
       setSelectedId(null);
     },
@@ -115,6 +236,7 @@ const Review: React.FC = () => {
     onSuccess: (res) => {
       toast.success('Memo issued successfully');
       queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos-review-counts'] });
       queryClient.invalidateQueries({ queryKey: ['memos'] });
       queryClient.invalidateQueries({ queryKey: ['memo'] });
       setAssignModal(null);
@@ -131,6 +253,7 @@ const Review: React.FC = () => {
     onSuccess: () => {
       toast.success('Memo put on hold');
       queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos-review-counts'] });
       queryClient.invalidateQueries({ queryKey: ['memos'] });
       setMemoDetail(null);
       setSelectedId(null);
@@ -143,6 +266,7 @@ const Review: React.FC = () => {
     onSuccess: () => {
       toast.success('Memo rejected');
       queryClient.invalidateQueries({ queryKey: ['memos-review'] });
+      queryClient.invalidateQueries({ queryKey: ['memos-review-counts'] });
       queryClient.invalidateQueries({ queryKey: ['memos'] });
       setMemoDetail(null);
       setSelectedId(null);
@@ -277,7 +401,11 @@ const Review: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {memoDetail.status === 'PENDING_REVIEW' && (
+            <MemoPrintButton
+              content={memoDetail.content}
+              title={`Memo - ${memoDetail.policeStation} PS - Cr.No. ${memoDetail.crimeNo}`}
+            />
+            {(memoDetail.status === 'PENDING_REVIEW' || memoDetail.status === 'REVIEWED' || memoDetail.status === 'ON_HOLD' || memoDetail.status === 'REJECTED') && (
               <button
                 onClick={() => openAssign(memoDetail)}
                 className="flex items-center gap-1.5 px-4 py-1.5 bg-white text-[#003366] border border-white/40 text-xs font-bold uppercase tracking-wider hover:bg-white/90 transition rounded-sm"
@@ -517,11 +645,66 @@ const Review: React.FC = () => {
             }`}
           >
             {t.label}
-            {data?.data && t.key === tab && (
-              <span className="ml-2 bg-[#003366] text-white text-[10px] px-1.5 py-0.5 font-bold rounded-sm">{memos.length}</span>
-            )}
+            <span className={`ml-2 text-white text-[10px] px-1.5 py-0.5 font-bold rounded-sm ${
+              tab === t.key ? 'bg-[#003366]' : 'bg-[#718096]'
+            }`}>{getTabCount(t.key)}</span>
           </button>
         ))}
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+        <FilterDropdown
+          icon={<Filter size={13} />}
+          placeholder="All Zones"
+          value={filterZoneId}
+          onChange={onZoneChange}
+          options={(hierarchyData || []).map((z: any) => ({ value: z._id, label: z.name }))}
+        />
+        <FilterDropdown
+          icon={<Shield size={13} />}
+          placeholder="All Stations"
+          value={filterPsId}
+          onChange={onPsChange}
+          options={filteredStations.map((s) => ({ value: s._id, label: s.name }))}
+          searchable
+        />
+        <FilterDropdown
+          icon={<MapPin size={13} />}
+          placeholder="All Sectors"
+          value={filterSector}
+          onChange={setFilterSector}
+          options={sectorList.map((s: any) => ({ value: s.name, label: s.name }))}
+        />
+        <div className="w-px h-6 bg-[#D9DEE4] mx-1" />
+        <div className="inline-flex items-center gap-1.5 bg-white shadow-[0_1px_3px_rgba(0,51,102,0.1)] border border-[#003366]/10 text-[#003366] pl-3 pr-2.5 py-[7px] rounded-lg hover:shadow-[0_2px_6px_rgba(0,51,102,0.15)] hover:border-[#003366]/20 transition-all">
+          <Calendar size={13} className="flex-shrink-0 opacity-50" />
+          <input
+            type="date"
+            value={filterDateFrom}
+            onChange={(e) => setFilterDateFrom(e.target.value)}
+            className="text-[12px] font-semibold bg-transparent focus:outline-none cursor-pointer text-[#1C2334] w-[115px]"
+          />
+        </div>
+        <span className="text-[11px] text-[#718096] font-semibold">to</span>
+        <div className="inline-flex items-center gap-1.5 bg-white shadow-[0_1px_3px_rgba(0,51,102,0.1)] border border-[#003366]/10 text-[#003366] pl-3 pr-2.5 py-[7px] rounded-lg hover:shadow-[0_2px_6px_rgba(0,51,102,0.15)] hover:border-[#003366]/20 transition-all">
+          <Calendar size={13} className="flex-shrink-0 opacity-50" />
+          <input
+            type="date"
+            value={filterDateTo}
+            onChange={(e) => setFilterDateTo(e.target.value)}
+            className="text-[12px] font-semibold bg-transparent focus:outline-none cursor-pointer text-[#1C2334] w-[115px]"
+          />
+        </div>
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1.5 bg-white shadow-[0_1px_3px_rgba(155,44,44,0.12)] border border-[#9B2C2C]/15 text-[#9B2C2C] pl-2.5 pr-3 py-[7px] rounded-lg text-[12px] font-semibold hover:bg-[#9B2C2C]/5 hover:shadow-[0_2px_6px_rgba(155,44,44,0.18)] transition-all"
+          >
+            <RotateCcw size={12} />
+            Clear All
+          </button>
+        )}
       </div>
 
       {/* Cards grid */}
@@ -572,10 +755,10 @@ const Review: React.FC = () => {
                   </div>
                   <button
                     onClick={() => openDetail(memo)}
-                    className="w-full flex-shrink-0 bg-[#003366] text-white text-[10px] font-bold uppercase tracking-wider py-1.5 hover:bg-[#004480] transition flex items-center justify-center gap-1 mt-1.5 rounded-sm"
+                    className="w-full flex-shrink-0 text-[#003366] text-[10px] font-bold uppercase tracking-wider py-1.5 hover:text-[#004480] transition flex items-center justify-center gap-1 mt-1.5"
                   >
-                    <Eye size={11} />
-                    Review
+                    <FileText size={11} />
+                    <span className="underline">Review</span>
                   </button>
                 </div>
 
@@ -604,13 +787,15 @@ const Review: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); openCasePopup(memo); }}
-                    className="flex-shrink-0 flex items-center gap-1 text-[10px] text-[#003366] font-bold hover:text-[#004480] px-3 py-2 transition border-t border-[#D9DEE4] w-full"
-                  >
-                    <ExternalLink size={10} />
-                    View Full Details
-                  </button>
+                  <div className="flex-shrink-0 flex items-center border-t border-[#D9DEE4] w-full">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); openCasePopup(memo); }}
+                      className="flex-1 flex items-center justify-center gap-1 text-[10px] text-[#003366] font-bold hover:text-[#004480] hover:bg-[#EBF0F5] px-3 py-2 transition"
+                    >
+                      <Maximize2 size={10} />
+                      View Full Details
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

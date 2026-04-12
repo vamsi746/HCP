@@ -721,7 +721,7 @@ async function seed() {
   console.log(`  Sectors:  ${totalSectors}`);
   console.log(`  Officers: ${totalOfficers}`);
   console.log('──────────────────────────────────────────────');
-  console.log('  Login: HCP-001 / Admin@123 (Commissioner)');
+  console.log('  Login: commissioner@hcp.gov.in / Admin@123 (Commissioner)');
   console.log('  All SI officers also use: Admin@123');
   console.log('══════════════════════════════════════════════');
 

@@ -5,6 +5,7 @@ import { Upload as UploadIcon, CheckCircle, FileText, Loader2, ArrowLeft } from 
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { uploadDSR } from '../../services/endpoints';
+import FilterDropdown from '../../components/FilterDropdown';
 import type { ForceType } from '../../types';
 
 const FORCE_OPTIONS: { value: ForceType; label: string }[] = [
@@ -78,16 +79,13 @@ const DSRUpload: React.FC = () => {
           {/* Force Selection */}
           <div>
             <label className="block text-[12px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Zones <span className="text-red-600">*</span></label>
-            <select
+            <FilterDropdown
+              variant="form"
+              placeholder="Select zones…"
               value={selectedForce}
-              onChange={(e) => setSelectedForce(e.target.value as ForceType | '')}
-              className="w-full border border-slate-300 px-3 py-2.5 text-[13px] text-slate-700 focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none"
-            >
-              <option value="">Select zones…</option>
-              {FORCE_OPTIONS.map((f) => (
-                <option key={f.value} value={f.value}>{f.label}</option>
-              ))}
-            </select>
+              onChange={(v) => setSelectedForce(v as ForceType | '')}
+              options={FORCE_OPTIONS}
+            />
           </div>
 
           {/* File Upload */}

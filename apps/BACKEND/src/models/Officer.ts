@@ -36,7 +36,7 @@ const officerSchema = new Schema<IOfficer>(
     badgeNumber: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     rank: { type: String, enum: Object.values(OfficerRank), required: true },
-    email: String,
+    email: { type: String, unique: true, sparse: true },
     phone: String,
     passwordHash: { type: String, required: true },
     isActive: { type: Boolean, default: true },

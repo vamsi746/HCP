@@ -7,6 +7,7 @@ import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2, MapPin, 
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import type { Memo } from '../../types';
+import MemoPrintButton from '../../components/MemoPrintButton';
 
 const MemoEditorPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -111,8 +112,14 @@ const MemoEditorPage: React.FC = () => {
           </div>
         </div>
 
+        <div className="flex items-center gap-2">
+          <MemoPrintButton
+            content={content}
+            title={`Memo - ${data.policeStation} PS - Cr.No. ${data.crimeNo}`}
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-white/10 border border-white/20 text-white text-xs font-bold uppercase tracking-wider hover:bg-white/20 transition"
+          />
         {editable && (
-          <div className="flex items-center gap-2">
+          <>
             <button
               onClick={() => saveMutation.mutate()}
               disabled={!hasChanges || saveMutation.isPending}
@@ -129,8 +136,9 @@ const MemoEditorPage: React.FC = () => {
               <Send size={13} />
               {submitMutation.isPending ? 'Submitting…' : 'Submit for Review'}
             </button>
-          </div>
+          </>
         )}
+        </div>
       </div>
 
       {/* Info strip — colored chips */}

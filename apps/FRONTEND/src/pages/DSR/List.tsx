@@ -2,12 +2,13 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getDSRs, getDSR, updateDSR, deleteDSR, generateMemo, downloadDSRFile, getDSRDocument } from '../../services/endpoints';
 import StatusBadge from '../../components/StatusBadge';
-import { Pencil, Trash2, X, Plus, Eye, ChevronDown, FileSignature, Loader2, FileText, ExternalLink, CheckCircle2 } from 'lucide-react';
+import { Pencil, Trash2, X, Plus, Eye, ChevronDown, FileSignature, Loader2, FileText, ExternalLink, CheckCircle2, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import type { DSR, ForceType, ParsedCase } from '../../types';
 import { format } from 'date-fns';
 import { renderAsync } from 'docx-preview';
+import FilterDropdown from '../../components/FilterDropdown';
 
 const FORCE_LABELS: Record<ForceType, string> = {
   CHARMINAR_GOLCONDA: 'Charminar & Golconda',
@@ -199,17 +200,13 @@ const DSRList: React.FC = () => {
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-5">
-        <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider mr-1">Zones:</span>
-        <select
+        <FilterDropdown
+          icon={<MapPin size={13} />}
+          placeholder="All Zones"
           value={filterForce}
-          onChange={(e) => { setFilterForce(e.target.value as ForceType | ''); setPage(1); }}
-          className="border border-slate-300 px-3 py-1.5 text-[12px] font-bold text-slate-700 uppercase tracking-wider focus:ring-2 focus:ring-slate-400 focus:border-slate-400 outline-none"
-        >
-          <option value="">All Zones</option>
-          {(Object.keys(FORCE_LABELS) as ForceType[]).map((ft) => (
-            <option key={ft} value={ft}>{FORCE_LABELS[ft]}</option>
-          ))}
-        </select>
+          onChange={(v) => { setFilterForce(v as ForceType | ''); setPage(1); }}
+          options={(Object.keys(FORCE_LABELS) as ForceType[]).map((ft) => ({ value: ft, label: FORCE_LABELS[ft] }))}
+        />
         {total > 0 && <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider ml-auto">Total: {total} Record{total !== 1 ? 's' : ''}</span>}
       </div>
 

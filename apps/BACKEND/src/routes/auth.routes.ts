@@ -12,15 +12,15 @@ import { config } from '../config';
 const router = Router();
 
 const loginSchema = Joi.object({
-  badgeNumber: Joi.string().required(),
+  email: Joi.string().email().required(),
   password: Joi.string().required(),
 });
 
 // POST /api/auth/login
 router.post('/login', authLimiter, validate(loginSchema), async (req: Request, res: Response) => {
   try {
-    const { badgeNumber, password } = req.body;
-    const officer = await Officer.findOne({ badgeNumber, isActive: true });
+    const { email, password } = req.body;
+    const officer = await Officer.findOne({ email, isActive: true });
     if (!officer) { res.status(401).json({ error: 'Invalid credentials' }); return; }
 
     if (officer.lockedUntil && officer.lockedUntil > new Date()) {
