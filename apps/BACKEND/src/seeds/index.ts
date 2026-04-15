@@ -581,6 +581,7 @@ async function seed() {
   try { await PoliceStation.collection.dropIndexes(); } catch { /* ignore */ }
 
   const passwordHash = await bcrypt.hash('Admin@123', 12);
+  const commissionerHash = await bcrypt.hash('hcp@123', 12);
   let badgeCounter = 1;
 
   // Create Commissioner (login account)
@@ -590,7 +591,7 @@ async function seed() {
     rank: 'COMMISSIONER',
     phone: '9999900001',
     email: 'commissioner@hcp.gov.in',
-    passwordHash,
+    passwordHash: commissionerHash,
     isActive: true,
   });
 
@@ -721,7 +722,7 @@ async function seed() {
   console.log(`  Sectors:  ${totalSectors}`);
   console.log(`  Officers: ${totalOfficers}`);
   console.log('──────────────────────────────────────────────');
-  console.log('  Login: commissioner@hcp.gov.in / Admin@123 (Commissioner)');
+  console.log('  Login: commissioner@hcp.gov.in / hcp@123 (Commissioner)');
   console.log('  All SI officers also use: Admin@123');
   console.log('══════════════════════════════════════════════');
 

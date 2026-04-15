@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { useParams, useNavigate, useBeforeUnload, UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getMemo, updateMemo, submitMemoForReview } from '../../services/endpoints';
 import MemoEditor from '../../components/MemoEditor';
-import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2, MapPin, Shield, Scale, Calendar, UserCheck, Ban } from 'lucide-react';
+import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2, Ban } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { format } from 'date-fns';
 import type { Memo } from '../../types';
 import MemoPrintButton from '../../components/MemoPrintButton';
 
@@ -15,6 +14,11 @@ const MemoEditorPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [content, setContent] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+  const [lastSavedContent, setLastSavedContent] = useState('');
+  const [suppressNextEditorUpdate, setSuppressNextEditorUpdate] = useState(false);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<(() => void) | null>(null);
+  const navigationContext = useContext(NavigationContext);
 
   const { data, isLoading } = useQuery({
     queryKey: ['memo', id],
@@ -26,16 +30,28 @@ const MemoEditorPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if (data?.content) {
-      setContent(data.content);
+    if (data) {
+      const loadedContent = data.content || '';
+      setContent(loadedContent);
+      setLastSavedContent(loadedContent);
       setHasChanges(false);
+      // The editor may normalize HTML once after mount; do not treat that as a user edit.
+      setSuppressNextEditorUpdate(true);
     }
   }, [data]);
 
   const saveMutation = useMutation({
     mutationFn: () => updateMemo(id!, { content }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       toast.success('Memo saved');
+      const savedContent = res?.data?.data?.content;
+      if (typeof savedContent === 'string') {
+        setContent(savedContent);
+        setLastSavedContent(savedContent);
+        setSuppressNextEditorUpdate(true);
+      } else {
+        setLastSavedContent(content);
+      }
       setHasChanges(false);
       queryClient.invalidateQueries({ queryKey: ['memo', id] });
     },
@@ -47,8 +63,17 @@ const MemoEditorPage: React.FC = () => {
       if (hasChanges) await updateMemo(id!, { content });
       return submitMemoForReview(id!);
     },
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       toast.success('Memo submitted for CP Sir review');
+      const savedContent = res?.data?.data?.content;
+      if (typeof savedContent === 'string') {
+        setContent(savedContent);
+        setLastSavedContent(savedContent);
+        setSuppressNextEditorUpdate(true);
+      } else {
+        setLastSavedContent(content);
+      }
+      setHasChanges(false);
       queryClient.invalidateQueries({ queryKey: ['memo', id] });
       queryClient.invalidateQueries({ queryKey: ['memos'] });
       queryClient.invalidateQueries({ queryKey: ['memos-pending-count'] });
@@ -60,7 +85,70 @@ const MemoEditorPage: React.FC = () => {
 
   const handleContentUpdate = (html: string) => {
     setContent(html);
-    setHasChanges(true);
+    if (suppressNextEditorUpdate) {
+      setSuppressNextEditorUpdate(false);
+      setLastSavedContent(html);
+      setHasChanges(false);
+      return;
+    }
+    setHasChanges(html !== lastSavedContent);
+  };
+
+  const editable = !!data && (data.status === 'DRAFT' || data.status === 'PENDING_REVIEW');
+  const shouldBlockNavigation = hasChanges && editable;
+
+  useEffect(() => {
+    if (!shouldBlockNavigation) return;
+    const navigator: any = navigationContext.navigator;
+    if (!navigator?.block) return;
+
+    const unblock = navigator.block((tx: any) => {
+      setPendingNavigation(() => () => {
+        unblock();
+        tx.retry();
+      });
+      setLeaveDialogOpen(true);
+    });
+
+    return () => {
+      unblock();
+    };
+  }, [navigationContext, shouldBlockNavigation]);
+
+  useEffect(() => {
+    if (!shouldBlockNavigation) {
+      setPendingNavigation(null);
+      if (leaveDialogOpen) setLeaveDialogOpen(false);
+    }
+  }, [shouldBlockNavigation, leaveDialogOpen]);
+
+  useBeforeUnload(
+    useCallback((event) => {
+      if (!shouldBlockNavigation) return;
+      event.preventDefault();
+      event.returnValue = '';
+    }, [shouldBlockNavigation])
+  );
+
+  const stayOnPage = () => {
+    setLeaveDialogOpen(false);
+    setPendingNavigation(null);
+  };
+
+  const leaveWithoutSaving = () => {
+    setLeaveDialogOpen(false);
+    const proceed = pendingNavigation;
+    setPendingNavigation(null);
+    proceed?.();
+  };
+
+  const handleBack = () => {
+    if (shouldBlockNavigation) {
+      setPendingNavigation(() => () => navigate(-1));
+      setLeaveDialogOpen(true);
+      return;
+    }
+    navigate(-1);
   };
 
   if (isLoading) {
@@ -76,9 +164,6 @@ const MemoEditorPage: React.FC = () => {
       <div className="text-center py-20 text-gray-500">Memo not found</div>
     );
   }
-
-  const isDraft = data.status === 'DRAFT';
-  const editable = data.status === 'DRAFT' || data.status === 'PENDING_REVIEW';
 
   const STATUS_META: Record<string, { icon: React.ReactNode; label: string; bg: string }> = {
     DRAFT: { icon: <FileText size={12} />, label: 'Draft', bg: 'bg-amber-500 text-white' },
@@ -97,7 +182,7 @@ const MemoEditorPage: React.FC = () => {
       {/* Header bar — govt theme */}
       <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-3.5 flex items-center justify-between border-l-4 border-amber-500 -mx-6 -mt-6">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-1.5 hover:bg-white/10 text-blue-200 hover:text-white transition">
+          <button onClick={handleBack} className="p-1.5 hover:bg-white/10 text-blue-200 hover:text-white transition">
             <ArrowLeft size={18} />
           </button>
           <div>
@@ -143,18 +228,13 @@ const MemoEditorPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Info strip — colored chips */}
-      <div className="bg-white border-b-2 border-indigo-100 px-5 py-2.5 flex items-center gap-3 text-xs shadow-sm -mx-6">
-        <span className="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-800 px-3 py-1 border border-indigo-200 font-semibold"><MapPin size={12} />{data.zone || '—'}</span>
-        <span className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-800 px-3 py-1 border border-blue-200 font-semibold"><Shield size={12} />{data.policeStation || '—'} PS</span>
-        <span className="inline-flex items-center gap-1.5 bg-slate-50 text-slate-700 px-3 py-1 border border-slate-200 font-semibold"><Scale size={12} />u/s {data.sections || '—'}</span>
-        <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 px-3 py-1 border border-amber-200 font-semibold"><Calendar size={12} />{format(new Date(data.date), 'dd MMM yyyy')}</span>
-        {data.recipientName && (
-          <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-800 px-3 py-1 border border-emerald-200 font-bold">
-            <UserCheck size={12} />Issued To: {data.recipientDesignation}, {data.recipientName}
-          </span>
-        )}
-      </div>
+      {/* Unsaved changes banner */}
+      {hasChanges && editable && (
+        <div className="-mx-6 bg-amber-50 border-b border-amber-300 px-5 py-2.5 flex items-center gap-2 text-xs font-semibold text-amber-800">
+          <div className="w-1.5 h-1.5 bg-amber-500 animate-pulse" />
+          You have unsaved changes. Save draft before leaving this page.
+        </div>
+      )}
 
       {/* Memo editor */}
       <div className="mt-5 mx-0 mb-4 bg-white border border-slate-200 shadow-md">
@@ -172,11 +252,33 @@ const MemoEditorPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Unsaved changes warning */}
-      {hasChanges && editable && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-300 px-3 py-2 font-semibold">
-          <div className="w-1.5 h-1.5 bg-amber-500 animate-pulse" />
-          You have unsaved changes
+      {/* Leave confirmation dialog */}
+      {leaveDialogOpen && (
+        <div className="fixed inset-0 bg-black/40 z-[80] flex items-center justify-center p-4" onClick={stayOnPage}>
+          <div className="w-full max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-[#003366] px-5 py-3 rounded-t-sm">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">Unsaved Changes</h3>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-[#4A5568] leading-relaxed">
+                You have unsaved changes in this memo. Leave this page without saving?
+              </p>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  onClick={stayOnPage}
+                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider border border-[#D9DEE4] text-[#4A5568] hover:bg-[#F4F5F7] rounded-sm"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={leaveWithoutSaving}
+                  className="px-4 py-2 text-xs font-bold uppercase tracking-wider bg-[#003366] text-white hover:bg-[#004480] rounded-sm"
+                >
+                  Leave Without Saving
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

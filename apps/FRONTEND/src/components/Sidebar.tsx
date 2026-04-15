@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { useQuery } from '@tanstack/react-query';
 import { getMemos } from '../services/endpoints';
+import { RootState } from '../store';
 import {
   LayoutDashboard,
   Users,
@@ -33,6 +35,14 @@ const Dock: React.FC = () => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
+  const user = useSelector((s: RootState) => s.auth.user);
+
+  const visibleItems = useMemo(() => {
+    if (user?.rank === 'COMMISSIONER') {
+      return navItems.filter(i => i.to === '/review');
+    }
+    return navItems;
+  }, [user?.rank]);
 
   const { data: pendingData } = useQuery({
     queryKey: ['memos-pending-count'],
@@ -68,7 +78,7 @@ const Dock: React.FC = () => {
         className="flex items-end px-3 py-1.5 bg-white/80 backdrop-blur-2xl border border-gray-200/50 rounded-2xl shadow-lg shadow-black/5"
         onMouseLeave={() => setHoveredIndex(null)}
       >
-        {navItems.map(({ to, label, icon: Icon, color, text }, index) => {
+        {visibleItems.map(({ to, label, icon: Icon, color, text }, index) => {
           const scale = getScale(index);
           const ty = getTranslateY(index);
           const isActive = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);

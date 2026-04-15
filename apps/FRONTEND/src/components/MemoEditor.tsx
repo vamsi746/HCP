@@ -17,6 +17,16 @@ import { Subscript } from '@tiptap/extension-subscript';
 import { Highlight } from '@tiptap/extension-highlight';
 import { FontFamily } from '@tiptap/extension-font-family';
 import {
+  MEMO_A4_WIDTH_PX,
+  MEMO_A4_HEIGHT_PX,
+  MEMO_PAGE_PADDING_X_PX,
+  MEMO_PAGE_PADDING_Y_PX,
+  MEMO_CONTENT_MIN_HEIGHT_PX,
+  MEMO_FONT_FAMILY,
+  MEMO_FONT_SIZE_PT,
+  MEMO_LINE_HEIGHT,
+} from './memoLayout';
+import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
   List, ListOrdered, Undo2, Redo2, ImagePlus,
@@ -117,10 +127,6 @@ const FontSize = TextStyle.extend({
   },
 });
 
-// True A4 at 96 CSS-px per inch: 210mm × 297mm
-const A4_WIDTH = 794;   // 210mm at 96dpi
-const A4_HEIGHT = 1123;  // 297mm at 96dpi
-
 const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = true }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
@@ -162,8 +168,8 @@ const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = t
     },
     editorProps: {
       attributes: {
-        class: 'focus:outline-none min-h-[900px] px-[60px] py-[50px]',
-        style: 'font-family: "Times New Roman", Times, serif; font-size: 12pt; line-height: 1.7; color: #000;',
+        class: 'focus:outline-none',
+        style: `min-height: ${MEMO_CONTENT_MIN_HEIGHT_PX}px; padding: ${MEMO_PAGE_PADDING_Y_PX}px ${MEMO_PAGE_PADDING_X_PX}px; font-family: ${MEMO_FONT_FAMILY}; font-size: ${MEMO_FONT_SIZE_PT}; line-height: ${MEMO_LINE_HEIGHT}; color: #000;`,
       },
       handleKeyDown: (_view, event) => {
         if (event.key === 'Tab') {
@@ -198,7 +204,7 @@ const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = t
     if (!el) return;
     const ro = new ResizeObserver(() => {
       const h = el.scrollHeight;
-      setNumPages(Math.max(1, Math.ceil(h / A4_HEIGHT)));
+      setNumPages(Math.max(1, Math.ceil(h / MEMO_A4_HEIGHT_PX)));
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -415,17 +421,17 @@ const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = t
 
       {/* ── A4 Paper area — single continuous paper with page break lines ── */}
       <div className="bg-gray-100 p-6 overflow-auto" style={{ minHeight: 800 }}>
-        <div className="mx-auto relative" style={{ width: A4_WIDTH }}>
+        <div className="mx-auto relative" style={{ width: MEMO_A4_WIDTH_PX }}>
           <div
             ref={paperRef}
-            className="bg-white shadow-lg border border-gray-200"
-            style={{ minHeight: A4_HEIGHT }}
+            className="bg-white shadow-lg ring-1 ring-gray-200"
+            style={{ minHeight: MEMO_A4_HEIGHT_PX }}
           >
             <EditorContent editor={editor} />
           </div>
           {/* Page break indicator lines */}
           {Array.from({ length: numPages - 1 }).map((_, i) => {
-            const y = (i + 1) * A4_HEIGHT;
+            const y = (i + 1) * MEMO_A4_HEIGHT_PX;
             return (
               <div
                 key={i}

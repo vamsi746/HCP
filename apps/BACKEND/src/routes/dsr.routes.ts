@@ -426,6 +426,161 @@ router.get('/:id/document', authenticate, async (req: Request, res: Response) =>
   }
 });
 
+// GET /api/dsr/:dsrId/case-rows/:caseId — extract only case-specific rows from ANNEXURE-I and ANNEXURE-II
+router.get('/:dsrId/case-rows/:caseId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const dsr = await DSR.findById(req.params.dsrId).select('documentHtml parsedCases').lean();
+    if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
+
+    const parsedCase = (dsr.parsedCases || []).find((c: any) => c._id.toString() === req.params.caseId);
+    if (!parsedCase) { res.status(404).json({ error: 'Case not found in DSR' }); return; }
+
+    const html = dsr.documentHtml || '';
+    if (!html) { res.json({ data: { html: '<p style="padding:20px;color:#666">No document HTML available.</p>' } }); return; }
+
+    const slNo = parsedCase.slNo;
+    const psName = (parsedCase.policeStation || '').trim().toLowerCase();
+    const crNo = (parsedCase.crNo || '').trim();
+
+    // Extract all <table> blocks from documentHtml
+    const tableRegex = /<table[^>]*>([\s\S]*?)<\/table>/gi;
+    const tables: { full: string; inner: string; startIdx: number }[] = [];
+    let tm;
+    while ((tm = tableRegex.exec(html)) !== null) {
+      tables.push({ full: tm[0], inner: tm[1], startIdx: tm.index });
+    }
+
+    // Classify tables by looking at text BEFORE the table (for ANNEXURE-I label)
+    // and by header row content (brief facts = ANNEXURE-II type)
+    const classifyTable = (table: { inner: string; startIdx: number }) => {
+      const low = table.inner.toLowerCase().replace(/\s+/g, ' ');
+      const hasBriefFacts = low.includes('brief fact');
+      const hasAccused = low.includes('accused');
+      const hasZone = low.includes('zone');
+      const hasCrNo = low.includes('cr.') || low.includes('cr no') || low.includes('u/s');
+      
+      // Check the text before this table for ANNEXURE labels
+      const before = html.substring(Math.max(0, table.startIdx - 600), table.startIdx).toLowerCase();
+      const isAfterAnnexI = before.includes('annexure-i') || before.includes('annexure- i') || before.includes('annexure -i') || before.includes('annexure i');
+      const isAfterAnnexII = before.includes('annexure-ii') || before.includes('annexure- ii') || before.includes('annexure -ii') || before.includes('annexure ii');
+
+      if (hasBriefFacts) return 'ANNEX_II';
+      if (isAfterAnnexII) return 'ANNEX_II';
+      if (hasAccused && hasZone && hasCrNo && !hasBriefFacts) return 'ANNEX_I';
+      if (isAfterAnnexI && hasZone) return 'ANNEX_I';
+      // Continuation tables of ANNEXURE-I (same column structure, no header label)
+      if (hasZone && hasCrNo && hasAccused && !hasBriefFacts) return 'ANNEX_I';
+      return 'OTHER';
+    };
+
+    // Helper: extract all row texts, find the one matching our case
+    const extractRowHtml = (rows: string[]): string[] => rows.map(r => r);
+    
+    const getRowCells = (rowHtml: string): string[] => {
+      const cellRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+      const cells: string[] = [];
+      let cm;
+      while ((cm = cellRegex.exec(rowHtml)) !== null) {
+        cells.push(cm[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
+      }
+      return cells;
+    };
+
+    const findMatchingRow = (tableHtml: string, isFirstTable: boolean): { headerRows: string[]; dataRow: string } | null => {
+      const trRegex = /<tr[^>]*>[\s\S]*?<\/tr>/gi;
+      const allRows: string[] = [];
+      let rm;
+      while ((rm = trRegex.exec(tableHtml)) !== null) allRows.push(rm[0]);
+      if (allRows.length === 0) return null;
+
+      // Determine header vs data rows
+      // Header row: first row if it contains column header keywords
+      const headerRows: string[] = [];
+      let dataStartIdx = 0;
+
+      // Check if first row looks like a header (contains header keywords)
+      const firstRowText = allRows[0].replace(/<[^>]+>/g, ' ').toLowerCase();
+      if (firstRowText.includes('zone') || firstRowText.includes('si.') || firstRowText.includes('sl') || firstRowText.includes('name of')) {
+        headerRows.push(allRows[0]);
+        dataStartIdx = 1;
+        // Check if second row is also a sub-header
+        if (allRows.length > 1) {
+          const secText = allRows[1].replace(/<[^>]+>/g, ' ').toLowerCase();
+          if (secText.includes('zone') && secText.includes('name') && secText.length < 200) {
+            headerRows.push(allRows[1]);
+            dataStartIdx = 2;
+          }
+        }
+      }
+
+      // Search data rows for a match using policeStation name
+      for (let i = dataStartIdx; i < allRows.length; i++) {
+        const rowText = allRows[i].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase();
+
+        // Match by police station name (primary strategy)
+        if (psName && rowText.includes(psName)) {
+          return { headerRows, dataRow: allRows[i] };
+        }
+
+        // Match by slNo: count data rows from start (row index = slNo)
+        if (slNo && !isFirstTable) continue; // slNo only meaningful for first table chunk
+        if (slNo && isFirstTable && (i - dataStartIdx + 1) === slNo) {
+          return { headerRows, dataRow: allRows[i] };
+        }
+      }
+
+      return null;
+    };
+
+    const fragments: string[] = [];
+    let annexIFound = false;
+    let annexIIFound = false;
+
+    for (const table of tables) {
+      const type = classifyTable(table);
+
+      if (type === 'ANNEX_I') {
+        const result = findMatchingRow(table.full, !annexIFound);
+        if (result) {
+          if (!annexIFound) {
+            fragments.push('<div style="text-align:center;margin-bottom:8px;font-weight:bold;font-family:serif;font-size:12pt">ANNEXURE-I (ABSTRACT)</div>');
+          }
+          const tbl = '<table style="border-collapse:collapse;width:100%;font-size:10pt;font-family:serif;" border="1" cellpadding="4" cellspacing="0">' +
+            (result.headerRows.length > 0 ? result.headerRows.join('') : '') +
+            result.dataRow + '</table>';
+          fragments.push(tbl);
+          annexIFound = true;
+        }
+      }
+
+      if (type === 'ANNEX_II') {
+        const result = findMatchingRow(table.full, false);
+        if (result) {
+          if (!annexIIFound) {
+            fragments.push('<div style="text-align:center;margin:20px 0 8px;font-weight:bold;font-family:serif;font-size:12pt">ANNEXURE-II</div>');
+          }
+          const tbl = '<table style="border-collapse:collapse;width:100%;font-size:10pt;font-family:serif;" border="1" cellpadding="4" cellspacing="0">' +
+            (result.headerRows.length > 0 ? result.headerRows.join('') : '') +
+            result.dataRow + '</table>';
+          fragments.push(tbl);
+          annexIIFound = true;
+        }
+      }
+    }
+
+    if (fragments.length === 0) {
+      res.json({ data: { html: '<p style="padding:20px;color:#888;font-family:serif">Could not extract matching case rows from the DSR document.</p>' } });
+      return;
+    }
+
+    const caseHtml = `<div style="padding:16px;font-family:serif">${fragments.join('')}</div>`;
+    res.json({ data: { html: caseHtml } });
+  } catch (err: any) {
+    console.error('[CASE-ROWS]', err);
+    res.status(500).json({ error: 'Failed to extract case rows' });
+  }
+});
+
 // GET /api/dsr/:id/download — download original uploaded file
 router.get('/:id/download', authenticate, async (req: Request, res: Response) => {
   try {

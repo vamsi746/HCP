@@ -95,6 +95,9 @@ export const getDSR = (id: string) => api.get(`/dsr/${id}`);
 
 export const getDSRDocument = (id: string) => api.get(`/dsr/${id}/document`);
 
+export const getDSRCaseRows = (dsrId: string, caseId: string) =>
+  api.get(`/dsr/${dsrId}/case-rows/${caseId}`);
+
 export const downloadDSRFile = (id: string) =>
   api.get(`/dsr/${id}/download`, { responseType: 'arraybuffer' });
 

@@ -69,6 +69,24 @@ body {
 }
 .tiptap p {
   margin: 0.3em 0;
+  widows: 3;
+  orphans: 3;
+}
+.tiptap p,
+.tiptap li,
+.tiptap td,
+.tiptap th {
+  white-space: pre-wrap;
+}
+.tiptap .memo-signature-block {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+.tiptap .memo-signature-block p {
+  margin: 0.15em 0;
+}
+.tiptap .memo-page-break {
+  display: none !important;
 }
 .tiptap h1 { font-size: 24pt; font-weight: bold; margin: 0.5em 0 0.3em; }
 .tiptap h2 { font-size: 18pt; font-weight: bold; margin: 0.4em 0 0.2em; }

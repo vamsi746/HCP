@@ -3,133 +3,206 @@ import mongoose from 'mongoose';
 import { Memo, MemoStatus, DSR, Officer, PoliceStation, Zone, Division, Circle, SectorOfficer } from '../models';
 import { Sector } from '../models/Sector';
 import { authenticate } from '../middleware/auth';
-import { OfficerRank } from '../models';
 
 const router = Router();
 
 // ── Template Generation ──────────────────────────────────────────────────────
 
-function detectCrimeCategory(caseData: any): string {
-  const sections = (caseData.sections || '').toLowerCase();
-  const nature = (caseData.natureOfCase || caseData.crimeHead || '').toLowerCase();
-  const socialVice = (caseData.socialViceType || '').toLowerCase();
+type MemoTemplateValues = Record<string, string>;
 
-  if (sections.includes('ndps') || nature.includes('narcotic') || nature.includes('ganja') ||
-      nature.includes('cannabis') || nature.includes('cocaine') || nature.includes('heroin') ||
-      nature.includes('charas') || nature.includes('opium') || socialVice.includes('narcotic'))
-    return 'NDPS';
-  if (sections.includes('essential commodities') || nature.includes('pds') ||
-      nature.includes('essential commodit') || nature.includes('ration'))
-    return 'ESSENTIAL_COMMODITIES';
-  if (nature.includes('food') || nature.includes('adulterat') || nature.includes('expired') ||
-      nature.includes('cattle feed') || nature.includes('dhaana'))
-    return 'FOOD_SAFETY';
-  if (socialVice.includes('gambling') || socialVice.includes('betting') ||
-      nature.includes('gambling') || nature.includes('betting') || nature.includes('matka'))
-    return 'GAMBLING';
-  if (nature.includes('liquor') || nature.includes('illicit') || sections.includes('excise') ||
-      nature.includes('toddy') || nature.includes('arrack'))
-    return 'LIQUOR';
-  if (nature.includes('prostitution') || socialVice.includes('prostitution') ||
-      nature.includes('immoral traffic') || nature.includes('flesh trade'))
-    return 'PROSTITUTION';
-  return 'GENERAL';
+function normalizeWhitespace(value: unknown): string {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function getInstructionParagraph(category: string): string {
-  switch (category) {
-    case 'NDPS':
-      return 'You are hereby instructed to increase surveillance in your area, develop reliable and useful intelligence sources, conduct regular inspections, identify and maintain records of habitual offenders and keep strict watch on sensitive and vulnerable areas for strict implementation of the provisions of the NDPS Act.';
-    case 'FOOD_SAFETY':
-      return 'You are hereby instructed to increase surveillance in your jurisdiction, gather reliable and actionable information, identify and closely monitor storage units, fruit markets, and other sensitive areas and coordinate with concerned departments for effective enforcement.';
-    case 'GAMBLING':
-      return 'You are hereby instructed to increase surveillance in your area, develop reliable intelligence sources, identify and monitor gambling dens and habitual offenders, conduct regular raids and coordinate with concerned departments for effective enforcement.';
-    case 'LIQUOR':
-      return 'You are hereby instructed to increase surveillance in your area, develop reliable intelligence sources, identify and monitor illicit liquor manufacturing and distribution points, conduct regular raids and coordinate with Excise Department for effective enforcement.';
-    case 'PROSTITUTION':
-      return 'You are hereby instructed to increase surveillance in your area, develop reliable intelligence sources, identify and monitor vulnerable areas, conduct regular inspections and coordinate with concerned departments for effective enforcement under the Immoral Traffic (Prevention) Act.';
-    default:
-      return 'You are hereby instructed to increase surveillance in the area, develop reliable information sources, conduct regular inspections and coordinate with concerned departments for effective enforcement.';
-  }
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function getReviewParagraph(category: string): string {
-  if (category === 'NDPS') {
-    return 'Therefore, you must also review the existing preventive measures and correct any shortcomings to avoid such incidents in the future. Any negligence or failure in this matter will be viewed seriously and may lead to disciplinary action as per law.';
-  }
-  return 'Therefore, you must also review the existing preventive measures and take steps to correct any gaps to prevent such incidents in the future. Any negligence or failure in this matter will be taken seriously and may lead to disciplinary action as per law.';
+function formatDateParts(date: Date, separator: '-' | '.'): string {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(date.getFullYear());
+  return `${dd}${separator}${mm}${separator}${yyyy}`;
 }
 
-function generateMemoHTML(caseData: any, psName: string, zoneName: string, divisionName: string, memoDate: string): string {
-  const crNo = caseData.crNo || '___/____';
-  const sections = caseData.sections || '___';
-  const dor = caseData.dor || memoDate;
-  const natureOfCase = (caseData.natureOfCase || caseData.crimeHead || '').trim();
-  const seizedProperty = (caseData.seizedProperty || '').trim();
+function parseLooseDate(value: unknown): Date | null {
+  const raw = normalizeWhitespace(value);
+  if (!raw) return null;
 
-  const category = detectCrimeCategory(caseData);
-
-  // Build crime description from natureOfCase (short), NOT briefFacts (long)
-  let crimeDesc = '';
-  if (natureOfCase) {
-    crimeDesc = natureOfCase.charAt(0).toLowerCase() + natureOfCase.slice(1);
-    crimeDesc = crimeDesc.replace(/\.\s*$/, '');
+  const match = raw.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (match) {
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    let year = Number(match[3]);
+    if (year < 100) year += 2000;
+    const parsed = new Date(year, month - 1, day);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
   }
 
-  // Body paragraph 1 — crime-specific description
-  let bodyPara1: string;
-  if (crimeDesc) {
-    bodyPara1 = `A case has been reported vide Cr.No.${crNo}, which falls under in your PS limits pertaining to ${crimeDesc}.`;
-  } else {
-    bodyPara1 = `A case has been reported vide Cr.No.${crNo}, which falls under in your PS limits.`;
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+  return null;
+}
+
+function formatDateString(value: unknown, fallbackDate: Date, separator: '-' | '.'): string {
+  const parsed = parseLooseDate(value);
+  return formatDateParts(parsed || fallbackDate, separator);
+}
+
+function buildOffenceTitle(caseData: any): string {
+  const primary = normalizeWhitespace(caseData.natureOfCase || caseData.crimeHead || caseData.socialViceType || '');
+  return primary || 'illegal activity';
+}
+
+function buildOffenceActivity(offenceTitle: string): string {
+  const lower = offenceTitle.toLowerCase();
+  if (lower.includes('food') || lower.includes('adulterat') || lower.includes('edible') || lower.includes('oil')) {
+    return 'food adulteration and illegal edible product manufacturing';
+  }
+  if (lower.includes('ndps') || lower.includes('ganja') || lower.includes('drug') || lower.includes('narcotic')) {
+    return 'narcotic drug offences';
+  }
+  if (lower.includes('liquor') || lower.includes('excise') || lower.includes('arrack') || lower.includes('toddy')) {
+    return 'illicit liquor offences';
+  }
+  if (lower.includes('gambl') || lower.includes('betting') || lower.includes('matka')) {
+    return 'gambling and betting offences';
+  }
+  if (lower.includes('prostitut') || lower.includes('immoral traffic')) {
+    return 'immoral traffic offences';
+  }
+  return offenceTitle;
+}
+
+function buildToBlock(psName: string, recipientName?: string, recipientDesignation?: string): string {
+  const safePs = escapeHtml(normalizeWhitespace(psName) || '________');
+  if (recipientName) {
+    const safeName = escapeHtml(normalizeWhitespace(recipientName));
+    const safeDesignation = escapeHtml(normalizeWhitespace(recipientDesignation) || 'Inspector of Police');
+    return `<p>To</p>\n<p>Sri. ${safeName}, ${safeDesignation},</p>\n<p>${safePs} P.S, Hyderabad.</p>\n<p>&nbsp;</p>`;
+  }
+  return `<p>To</p>\n<p>The Inspector of Police/SHO,</p>\n<p>${safePs} P.S, Hyderabad.</p>\n<p>&nbsp;</p>`;
+}
+
+function renderMemoTemplate(template: string, values: MemoTemplateValues): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key) => values[key] ?? '');
+}
+
+function replaceToBlock(content: string, toBlock: string): string {
+  const toUntilCopyRegex = /<p>\s*To\s*<\/p>[\s\S]*?(?=<p>\s*Copy:\s*<\/p>)/i;
+  if (toUntilCopyRegex.test(content)) {
+    return content.replace(toUntilCopyRegex, `${toBlock}\n`);
   }
 
-  // For NDPS cases, add seized property details
-  if (seizedProperty && category === 'NDPS') {
-    bodyPara1 += ` In the said case ${seizedProperty} were seized from their possession vide case cited.`;
+  const legacyToRegex = /<p>To<\/p>\s*(?:<p>[^<]+,<\/p>\s*)?<p>The (?:Inspector of Police\/SHO|Sub-Inspector of Police),<\/p>\s*<p>[^<]*PS, Hyderabad,<\/p>/i;
+  if (legacyToRegex.test(content)) {
+    return content.replace(legacyToRegex, toBlock.trim());
   }
 
-  // For non-NDPS, non-FOOD_SAFETY: add vigilance sentence
-  if (category !== 'NDPS' && category !== 'FOOD_SAFETY') {
-    bodyPara1 += ' This incident shows the need for better vigilance and improved intelligence to detect and prevent such illegal activities.';
+  return content;
+}
+
+function ensureMemoFooterGrouping(content: string): string {
+  const source = String(content || '');
+  if (!source) return source;
+  if (source.includes('memo-footer-block')) {
+    return source.replace(/<div class="memo-page-break"><\/div>\s*(?=<div class="memo-footer-block">)/ig, '');
   }
 
-  const bodyPara2 = getInstructionParagraph(category);
-  const bodyPara3 = getReviewParagraph(category);
+  const footerTailRegex = /(<p[^>]*text-align:\s*right[^>]*>\s*Commissioner of Police,\s*<\/p>\s*<p[^>]*text-align:\s*right[^>]*>\s*Hyderabad City\s*<\/p>\s*<p>\s*&nbsp;\s*<\/p>\s*<p>\s*To\s*<\/p>[\s\S]*)$/i;
+  if (!footerTailRegex.test(source)) return source;
 
-  return `<p style="text-align: center"><strong>GOVERNMENT OF TELANGANA</strong></p>
+  return source.replace(footerTailRegex, (tail) => {
+    const withSignature = tail.replace(
+      /(<p[^>]*text-align:\s*right[^>]*>\s*Commissioner of Police,\s*<\/p>\s*<p[^>]*text-align:\s*right[^>]*>\s*Hyderabad City\s*<\/p>)/i,
+      '<div class="memo-signature-block">$1</div>'
+    );
+    const withDispatch = withSignature.replace(
+      /(<p>\s*To\s*<\/p>[\s\S]*)$/i,
+      '<div class="memo-dispatch-block">$1</div>'
+    );
+    return `<div class="memo-footer-block">${withDispatch}</div>`;
+  });
+}
+
+function generateMemoHTML(caseData: any, psName: string, zoneName: string, divisionName: string, memoDate: Date): string {
+  const crNo = normalizeWhitespace(caseData.crNo) || '___/____';
+  const sections = normalizeWhitespace(caseData.sections) || '___';
+  const memoDateDisplay = formatDateParts(memoDate, '-');
+  const refDateDisplay = formatDateString(caseData.dor, memoDate, '.');
+
+  const offenceTitle = buildOffenceTitle(caseData);
+  const offenceDescription = offenceTitle.replace(/\.\s*$/, '');
+  const offenceActivity = buildOffenceActivity(offenceTitle);
+  const briefFacts = normalizeWhitespace(caseData.briefFacts || '');
+  const isFoodRelated = /(food|adulterat|oil|edible|animal fat)/i.test(`${offenceTitle} ${briefFacts}`);
+  const publicSafetySentence = isFoodRelated
+    ? 'This activity is dangerous to public health and shows the need for better vigilance and effective intelligence to prevent such offences.'
+    : 'This activity shows the need for better vigilance and effective intelligence to prevent such offences.';
+  const coordinationDepartment = isFoodRelated
+    ? 'Food Safety and other concerned departments'
+    : 'other concerned departments';
+
+  const template = `<p style="text-align: center"><strong>GOVERNMENT OF TELANGANA</strong></p>
 <p style="text-align: center"><strong>POLICE DEPARTMENT</strong></p>
 <p>&nbsp;</p>
 <p style="text-align: right">Office of the,</p>
 <p style="text-align: right">Commissioner of Police,</p>
 <p style="text-align: right">Hyderabad City</p>
-<p>&nbsp;</p>
-<p>No.______&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Dated: ${memoDate}</p>
-<p style="text-align: center"><strong><u>MEMORANDUM</u></strong></p>
-<p>&nbsp;</p>
-<table><tbody><tr><td><p><strong>Sub:</strong></p></td><td><p>Hyderabad City Police- You are here by advised to strengthen your information – Regarding</p></td></tr><tr><td><p><strong>Ref:</strong></p></td><td><p>Crime No. ${crNo} u/s ${sections} of ${psName} PS, dated ${dor}.</p></td></tr></tbody></table>
-<p>&nbsp;</p>
+<p><span style="display:inline-block;width:60%;vertical-align:top">No. {{memoNumber}}</span><span style="display:inline-block;width:39%;text-align:right;vertical-align:top">Dated: {{memoDate}}</span></p>
+<p style="text-align: center"><strong><u>MEMO</u></strong></p>
+<p><strong>Sub:</strong> Hyderabad City Police - Failure to prevent {{offenceTitle}} - Explanation called for - Regarding.</p>
+<p><strong>Ref:</strong> Crime No. {{crNo}} u/s {{sections}} of {{psName}} PS, dated {{refDate}}.</p>
 <p style="text-align: center">* * * * *</p>
-<p>&nbsp;</p>
-<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${bodyPara1}</p>
-<p>&nbsp;</p>
-<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${bodyPara2}</p>
-<p>&nbsp;</p>
-<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;${bodyPara3}</p>
-<p>&nbsp;</p>
-<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The acknowledged, and compliance report submitted at the earliest.</p>
-<p>&nbsp;</p>
-<p>&nbsp;</p>
-<p style="text-align: right">Commissioner of Police,</p>
-<p style="text-align: right">Hyderabad City.</p>
-<p>&nbsp;</p>
-<p>To</p>
-<p>The Inspector of Police/SHO,</p>
-<p>${psName} PS, Hyderabad,</p>
-<p>&nbsp;</p>
-<p>Copy:</p>
-<p>&nbsp;&nbsp;&nbsp;&nbsp;1. The ACP, ${divisionName} Division, Hyderabad for information and necessary action.</p>
-<p>&nbsp;&nbsp;&nbsp;&nbsp;2. The DCP, ${zoneName} Zone, Hyderabad for information and necessary action.</p>`;
+<p style="text-align: justify">A case has been reported vide Cr.No.{{crNo}}, which falls under in your PS limits pertaining to {{offenceDescription}}. {{publicSafetySentence}}</p>
+<p style="text-align: justify">The following certain instructions are issued for strict compliance:</p>
+<ol style="margin:0 0 0 26px;padding:0">
+  <li>Develop a reliable informer network to gather information about {{offenceActivity}} in your jurisdiction.</li>
+  <li>Maintain a close watch on suspected manufacturing units, storage places, warehouses, and any suspicious locations.</li>
+  <li>Conduct regular surprise inspections and raids on suspected illegal units.</li>
+  <li>Coordinate actively with {{coordinationDepartment}} for information and action.</li>
+  <li>Keep continuous surveillance on habitual offenders and known persons involved in {{offenceActivity}}.</li>
+  <li>Take preventive action against suspects under relevant legal provisions.</li>
+  <li>Ensure proper supervision of Patrol cars and Blue Colts staff and responsibility in detecting such offences.</li>
+</ol>
+<p style="text-align: justify">It is observed that, being a Station House Officer there was failure to detect and prevent the illegal activity at an earlier stage, which shows a lack of proper observance, intelligence gathering and supervisory control.</p>
+<p style="text-align: justify">Therefore, you are hereby instructed to submit your explanation for the above lapse within three (3) days from the date of receipt of this memo. Failing which, it will be presumed that you have no explanation to offer and appropriate disciplinary action will be initiated against you.</p>
+<div class="memo-footer-block">
+  <p>&nbsp;</p>
+  <div class="memo-signature-block">
+    <p style="text-align: right">Commissioner of Police,</p>
+    <p style="text-align: right">Hyderabad City</p>
+  </div>
+  <p>&nbsp;</p>
+  <div class="memo-dispatch-block">
+    {{toBlock}}
+    <p>Copy:</p>
+    <p>1. The ACP, {{divisionLabel}} for information and necessary action.</p>
+    <p>2. The DCP, {{zoneLabel}} for information and necessary action.</p>
+  </div>
+</div>`;
+
+  return renderMemoTemplate(template, {
+    memoNumber: '___________',
+    memoDate: escapeHtml(memoDateDisplay),
+    offenceTitle: escapeHtml(offenceTitle),
+    crNo: escapeHtml(crNo),
+    sections: escapeHtml(sections),
+    psName: escapeHtml(psName),
+    refDate: escapeHtml(refDateDisplay),
+    offenceDescription: escapeHtml(offenceDescription),
+    publicSafetySentence: escapeHtml(publicSafetySentence),
+    offenceActivity: escapeHtml(offenceActivity),
+    coordinationDepartment: escapeHtml(coordinationDepartment),
+    divisionLabel: escapeHtml(divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad'),
+    zoneLabel: escapeHtml(zoneName ? `${zoneName} Zone, Hyderabad` : '________ Zone, Hyderabad'),
+    toBlock: buildToBlock(psName),
+  });
 }
 
 // ── POST /api/memos/generate — Generate memo from a DSR parsed case ─────────
@@ -195,13 +268,12 @@ router.post('/generate', authenticate, async (req: Request, res: Response) => {
 
     // Use DSR raided date (not current date)
     const memoDate = dsr.date ? new Date(dsr.date) : new Date();
-    const dateStr = `${memoDate.getDate()}-${memoDate.getMonth() + 1}-${memoDate.getFullYear()}`;
-
-    const subject = 'Hyderabad City Police- You are here by advised to strengthen your information – Regarding';
-    const reference = `Crime No. ${parsedCase.crNo || '___'} u/s ${parsedCase.sections || '___'} of ${psName} PS, dated ${parsedCase.dor || dateStr}.`;
+    const offenceTitle = buildOffenceTitle(parsedCase);
+    const subject = `Hyderabad City Police - Failure to prevent ${offenceTitle} - Explanation called for - Regarding.`;
+    const reference = `Crime No. ${parsedCase.crNo || '___'} u/s ${parsedCase.sections || '___'} of ${psName} PS, dated ${formatDateString(parsedCase.dor, memoDate, '.')}.`;
 
     // Generate HTML content
-    const content = generateMemoHTML(parsedCase, psName, zoneName, divisionName, dateStr);
+    const content = generateMemoHTML(parsedCase, psName, zoneName, divisionName, memoDate);
 
     // Create memo
     const memo = await Memo.create({
@@ -223,8 +295,8 @@ router.post('/generate', authenticate, async (req: Request, res: Response) => {
       generatedAt: memoDate,
       recipientPS: psName,
       copyTo: [
-        { designation: 'ACP', name: '', unit: `${divisionName} Division, Hyderabad` },
-        { designation: 'DCP', name: '', unit: `${zoneName} Zone, Hyderabad` },
+        { designation: 'ACP', name: '', unit: divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad' },
+        { designation: 'DCP', name: '', unit: zoneName ? `${zoneName} Zone, Hyderabad` : '________ Zone, Hyderabad' },
       ],
     });
 
@@ -456,9 +528,10 @@ router.get('/:id', authenticate, async (req: Request, res: Response) => {
 router.put('/:id', authenticate, async (req: Request, res: Response) => {
   try {
     const { content, memoNumber, subject, reference, remarks } = req.body;
+    const normalizedContent = typeof content === 'string' ? ensureMemoFooterGrouping(content) : content;
     const memo = await Memo.findByIdAndUpdate(
       req.params.id,
-      { content, memoNumber, subject, reference, remarks },
+      { content: normalizedContent, memoNumber, subject, reference, remarks },
       { new: true }
     );
     if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
@@ -507,19 +580,13 @@ router.put('/:id/assign', authenticate, async (req: Request, res: Response) => {
     memo.recipientType = recipientType;
     memo.recipientId = officer._id as any;
     memo.recipientName = officer.name;
-    memo.recipientDesignation = recipientType === 'SHO' ? 'Inspector of Police/SHO' : 'Sub-Inspector of Police';
+    memo.recipientDesignation = recipientType === 'SHO' ? 'Inspector of Police' : 'Sub-Inspector of Police';
 
     // Update the HTML content's "To" block with officer name and designation
     const psName = memo.recipientPS || memo.policeStation || '';
-    const newToBlock = `<p>To</p>\n<p>${officer.name},</p>\n<p>The ${memo.recipientDesignation},</p>\n<p>${psName} PS, Hyderabad,</p>`;
-
-    // Replace the To block — handles original template AND re-assignments
-    // Original: <p>To</p> <p>The Inspector of Police/SHO,</p> <p>PS Name PS, Hyderabad,</p>
-    // After assign: <p>To</p> <p>OfficerName,</p> <p>The Designation,</p> <p>PS Name PS, Hyderabad,</p>
-    memo.content = memo.content.replace(
-      /<p>To<\/p>\s*(?:<p>[^<]+,<\/p>\s*)?<p>The (?:Inspector of Police\/SHO|Sub-Inspector of Police),<\/p>\s*<p>[^<]*PS, Hyderabad,<\/p>/,
-      newToBlock
-    );
+    const newToBlock = buildToBlock(psName, officer.name, memo.recipientDesignation || undefined);
+    memo.content = replaceToBlock(memo.content, newToBlock);
+    memo.content = ensureMemoFooterGrouping(memo.content);
 
     await memo.save();
     const populated = await Memo.findById(memo._id)

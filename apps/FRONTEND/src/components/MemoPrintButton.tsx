@@ -1,5 +1,14 @@
 import React, { useState } from 'react';
 import { Printer, Loader2 } from 'lucide-react';
+import {
+  MEMO_A4_WIDTH_PX,
+  MEMO_A4_HEIGHT_PX,
+  MEMO_PAGE_PADDING_X_PX,
+  MEMO_PAGE_PADDING_Y_PX,
+  MEMO_FONT_FAMILY,
+  MEMO_FONT_SIZE_PT,
+  MEMO_LINE_HEIGHT,
+} from './memoLayout';
 
 interface MemoPrintButtonProps {
   content: string;
@@ -25,6 +34,53 @@ const collectPageCSS = (): string => {
   return css;
 };
 
+const normalizeLegacyFooterForPrint = (html: string): string => {
+  const source = String(html || '');
+  if (!source) return source;
+  if (source.includes('memo-footer-block')) {
+    return source.replace(/<div class="memo-page-break"><\/div>\s*(?=<div class="memo-footer-block">)/ig, '');
+  }
+
+  const footerTailRegex = /(<p[^>]*text-align:\s*right[^>]*>\s*Commissioner of Police,\s*<\/p>\s*<p[^>]*text-align:\s*right[^>]*>\s*Hyderabad City\s*<\/p>\s*<p>\s*&nbsp;\s*<\/p>\s*<p>\s*To\s*<\/p>[\s\S]*)$/i;
+  if (!footerTailRegex.test(source)) return source;
+
+  return source.replace(footerTailRegex, (tail) => {
+    const withSignature = tail.replace(
+      /(<p[^>]*text-align:\s*right[^>]*>\s*Commissioner of Police,\s*<\/p>\s*<p[^>]*text-align:\s*right[^>]*>\s*Hyderabad City\s*<\/p>)/i,
+      '<div class="memo-signature-block">$1</div>'
+    );
+    const withDispatch = withSignature.replace(
+      /(<p>\s*To\s*<\/p>[\s\S]*)$/i,
+      '<div class="memo-dispatch-block">$1</div>'
+    );
+    return `<div class="memo-footer-block">${withDispatch}</div>`;
+  });
+};
+
+const preserveBlankParagraphsForPrint = (html: string): string => {
+  const source = String(html || '');
+  if (!source) return source;
+
+  const container = document.createElement('div');
+  container.innerHTML = source;
+
+  const isVisuallyEmptyParagraph = (p: HTMLParagraphElement): boolean => {
+    const visibleText = (p.textContent || '').replace(/\u00a0/g, '').trim();
+    if (visibleText.length > 0) return false;
+    const nonBreakChildren = Array.from(p.children).filter((c) => c.tagName !== 'BR');
+    return nonBreakChildren.length === 0;
+  };
+
+  container.querySelectorAll('p').forEach((node) => {
+    const p = node as HTMLParagraphElement;
+    if (isVisuallyEmptyParagraph(p)) {
+      p.innerHTML = '&nbsp;';
+    }
+  });
+
+  return container.innerHTML;
+};
+
 const MemoPrintButton: React.FC<MemoPrintButtonProps> = ({
   content,
   title,
@@ -40,16 +96,12 @@ const MemoPrintButton: React.FC<MemoPrintButtonProps> = ({
 
     const pageCSS = collectPageCSS();
 
-    // TipTap serializes empty paragraphs as <p></p> which collapse in HTML
-    // (no line box = zero height). In the editor they're kept alive by contentEditable.
-    // Fix: inject &nbsp; so they maintain proper line height in print.
-    const printContent = content
-      .replace(/<p><\/p>/g, '<p>&nbsp;</p>')
-      .replace(/<p>\s*<br\s*\/?>\s*<\/p>/g, '<p>&nbsp;</p>');
+    const printContent = preserveBlankParagraphsForPrint(content);
+    const normalizedPrintContent = normalizeLegacyFooterForPrint(printContent);
 
-    // Iframe at 794px width — same as MemoEditor paper (A4 at 96dpi)
+    // Hidden iframe uses the exact memo paper dimensions for print rendering.
     const iframe = document.createElement('iframe');
-    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;height:1123px;border:none;';
+    iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${MEMO_A4_WIDTH_PX}px;height:${MEMO_A4_HEIGHT_PX}px;border:none;`;
     document.body.appendChild(iframe);
 
     const doc = iframe.contentDocument || iframe.contentWindow?.document;
@@ -70,15 +122,36 @@ const MemoPrintButton: React.FC<MemoPrintButtonProps> = ({
 ${pageCSS}
 @page { size: A4; margin: 0; }
 @media print {
-  html, body { margin: 0; padding: 0; width: 794px; }
+  html, body { margin: 0; padding: 0; width: ${MEMO_A4_WIDTH_PX}px; }
   body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; background: #fff; width: ${MEMO_A4_WIDTH_PX}px; }
+.memo-print-root {
+  width: ${MEMO_A4_WIDTH_PX}px;
+  min-height: ${MEMO_A4_HEIGHT_PX}px;
+  box-sizing: border-box;
+  padding: ${MEMO_PAGE_PADDING_Y_PX}px ${MEMO_PAGE_PADDING_X_PX}px;
+  font-family: ${MEMO_FONT_FAMILY};
+  font-size: ${MEMO_FONT_SIZE_PT};
+  line-height: ${MEMO_LINE_HEIGHT};
+  color: #000;
+  background: #fff;
+}
+.memo-print-root * { box-sizing: border-box; }
+.memo-print-root .memo-page-break {
+  display: none !important;
+}
+.memo-print-root .memo-signature-block {
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+.memo-print-root tr,
+.memo-print-root img { break-inside: avoid; page-break-inside: avoid; }
 </style>
 </head>
 <body>
-<div class="tiptap" style="width:794px; padding:50px 60px; font-family:'Times New Roman',Times,serif; font-size:12pt; line-height:1.7; color:#000; background:#fff;">
-${printContent}
+<div class="tiptap memo-print-root">
+${normalizedPrintContent}
 </div>
 </body>
 </html>`);

@@ -16,7 +16,8 @@ const Login: React.FC = () => {
     e.preventDefault();
     const result = await dispatch(login({ email, password }));
     if (login.fulfilled.match(result)) {
-      navigate('/');
+      const officer = result.payload as any;
+      navigate(officer?.rank === 'COMMISSIONER' ? '/review' : '/');
     }
   };
 

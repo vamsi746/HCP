@@ -1,7 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers, getHierarchy, getMemoCounts, getDSRDocument, downloadDSRFile } from '../services/endpoints';
-import { renderAsync } from 'docx-preview';
+import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers, getHierarchy, getMemoCounts, getDSRCaseRows } from '../services/endpoints';
 import MemoEditor from '../components/MemoEditor';
 import FilterDropdown from '../components/FilterDropdown';
 import { Fullscreen, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, Maximize2, AlertTriangle, Users, Briefcase, Scale, Filter, RotateCcw, Minimize2, Columns2, FileSpreadsheet, ZoomIn, ZoomOut, Scan } from 'lucide-react';
@@ -53,15 +52,12 @@ const Review: React.FC = () => {
   const isDraggingSplit = useRef(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
-  // Right panel view toggle: extracted details vs original DSR document
+  // Right panel view toggle: extracted details vs case-specific DSR rows
   const [rightPanelView, setRightPanelView] = useState<'details' | 'document'>('details');
-  const [dsrDocFallbackHtml, setDsrDocFallbackHtml] = useState<string>('');
+  const [caseRowsHtml, setCaseRowsHtml] = useState<string>('');
   const [dsrDocLoading, setDsrDocLoading] = useState(false);
-  const [dsrDocRendered, setDsrDocRendered] = useState(false);
-  const docContainerRef = useRef<HTMLDivElement>(null);
   const [docZoom, setDocZoom] = useState(0.5);
   const docScrollRef = useRef<HTMLDivElement>(null);
-  const dsrDocBlob = useRef<Blob | null>(null);
 
   // Filter state
   const [filterZoneId, setFilterZoneId] = useState('');
@@ -195,9 +191,7 @@ const Review: React.FC = () => {
     setCasePopup(memo);
     setPanelMode('split');
     setRightPanelView('details');
-    setDsrDocFallbackHtml('');
-    setDsrDocRendered(false);
-    dsrDocBlob.current = null;
+    setCaseRowsHtml('');
   }, []);
 
   const minimizePanel = useCallback(() => {
@@ -215,12 +209,10 @@ const Review: React.FC = () => {
     setPanelMode('hidden');
     setCasePopup(null);
     setRightPanelView('details');
-    setDsrDocFallbackHtml('');
-    setDsrDocRendered(false);
-    dsrDocBlob.current = null;
+    setCaseRowsHtml('');
   }, []);
 
-  // Toggle right panel between extracted details and full original DSR document
+  // Toggle right panel between extracted details and case-specific DSR rows
   const toggleDocumentView = useCallback((memo: Memo) => {
     if (rightPanelView === 'document') {
       setRightPanelView('details');
@@ -233,84 +225,28 @@ const Review: React.FC = () => {
     setRightPanelView('document');
   }, [rightPanelView]);
 
-  // Helper: render cached blob into the docx container
-  const renderDocxIntoContainer = useCallback((blob: Blob) => {
-    const el = docContainerRef.current;
-    if (!el) return;
-    renderAsync(blob, el, undefined, {
-      className: 'dsr-docx-preview',
-      inWrapper: true,
-      ignoreWidth: true,
-      ignoreHeight: true,
-      ignoreFonts: false,
-      breakPages: false,
-      renderHeaders: false,
-      renderFooters: false,
-      renderFootnotes: true,
-    }).then(() => {
-      el.querySelectorAll('*').forEach(child => {
-        const s = (child as HTMLElement).style;
-        s.width = ''; s.minWidth = ''; s.maxWidth = '';
-        s.height = ''; s.minHeight = ''; s.maxHeight = '';
-      });
-      el.querySelectorAll('section').forEach(sec => {
-        const s = (sec as HTMLElement).style;
-        s.padding = '0'; s.margin = '0';
-        s.height = 'auto'; s.minHeight = '0';
-      });
-      const sections = el.querySelectorAll('section.docx');
-      for (let i = sections.length - 1; i >= 0; i--) {
-        if (!(sections[i].textContent || '').trim()) (sections[i] as HTMLElement).style.display = 'none';
-        else break;
-      }
-      setDsrDocRendered(true);
-    }).catch(() => {}).finally(() => {
-      setDsrDocLoading(false);
-    });
-  }, []);
-
-  // Load document when switching to document view — also re-render when container remounts (split ↔ popup)
+  // Load case-specific rows when switching to document view
   React.useEffect(() => {
     if (rightPanelView !== 'document') return;
-    const el = docContainerRef.current;
-    if (!el) return;
-
-    // If container is empty but we have cached data, re-render
-    if (el.children.length === 0 && dsrDocBlob.current) {
-      setDsrDocLoading(true);
-      requestAnimationFrame(() => renderDocxIntoContainer(dsrDocBlob.current!));
-      return;
-    }
-    if (el.children.length === 0 && dsrDocFallbackHtml) {
-      // Fallback HTML is rendered via React, nothing to do
-      return;
-    }
-
-    // Already has content or already rendered
-    if (dsrDocRendered || el.children.length > 0) return;
+    if (caseRowsHtml) return; // already loaded
 
     const dsrId = casePopup?.dsrId;
-    if (!dsrId) return;
+    const caseId = casePopup?.caseId;
+    if (!dsrId || !caseId) return;
 
     setDsrDocLoading(true);
     (async () => {
       try {
-        const res = await downloadDSRFile(dsrId);
-        dsrDocBlob.current = res.data;
-        requestAnimationFrame(() => renderDocxIntoContainer(res.data));
+        const res = await getDSRCaseRows(dsrId, caseId);
+        const html = res.data?.data?.html || '';
+        setCaseRowsHtml(html || '<p style="padding:20px;color:#666;">Could not extract case rows from document.</p>');
       } catch {
-        try {
-          const htmlRes = await getDSRDocument(dsrId);
-          const html = htmlRes.data?.data?.documentHtml || '';
-          setDsrDocFallbackHtml(html || '<p style="padding:20px;color:#666;">DSR document not available.</p>');
-          if (html) setDsrDocRendered(true);
-        } catch {
-          setDsrDocFallbackHtml('<p style="padding:20px;color:#c00;">Failed to load DSR document.</p>');
-        }
+        setCaseRowsHtml('<p style="padding:20px;color:#c00;">Failed to load case rows.</p>');
+      } finally {
         setDsrDocLoading(false);
       }
     })();
-  }, [rightPanelView, dsrDocRendered, casePopup?.dsrId, panelMode, renderDocxIntoContainer, dsrDocFallbackHtml]);
+  }, [rightPanelView, caseRowsHtml, casePopup?.dsrId, casePopup?.caseId]);
 
   // Draggable split divider handler
   const onSplitDragStart = useCallback((e: React.MouseEvent) => {
@@ -604,11 +540,11 @@ const Review: React.FC = () => {
         <button
           onClick={() => toggleDocumentView(memo)}
           className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition border bg-white/10 text-white/90 border-white/20 hover:bg-white/20 hover:text-white"
-          title={rightPanelView === 'document' ? 'Show extracted details' : 'Show original DSR document'}
+          title={rightPanelView === 'document' ? 'Show extracted details' : 'Show case rows from DSR'}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <FileSpreadsheet size={12} />
-          {rightPanelView === 'document' ? 'Details' : 'Document'}
+          {rightPanelView === 'document' ? 'Details' : 'DSR Rows'}
         </button>
         {mode === 'split' && (
           <button onClick={minimizePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Minimize to popup" onMouseDown={(e) => e.stopPropagation()}>
@@ -648,29 +584,27 @@ const Review: React.FC = () => {
         {dsrDocLoading && (
           <div className="flex items-center justify-center h-40 text-slate-400">
             <Loader2 size={20} className="animate-spin mr-2" />
-            Loading DSR document…
+            Loading case rows…
           </div>
         )}
-        {/* docx-preview renders into this container — always mounted, visibility toggled */}
-        <div
-          ref={docContainerRef}
-          className="dsr-docx-container"
-          style={{ zoom: docZoom }}
-        />
-        {/* HTML fallback if docx-preview fails */}
-        {dsrDocFallbackHtml && (
+        {caseRowsHtml && (
           <div
-            className="dsr-document-view p-4 text-sm"
-            style={{ fontFamily: 'serif', fontSize: '11pt', lineHeight: 1.5, zoom: docZoom }}
-            dangerouslySetInnerHTML={{ __html: dsrDocFallbackHtml }}
-          />
+            className="dsr-case-rows-view p-2"
+            style={{ fontSize: '11pt', lineHeight: 1.4, zoom: docZoom }}
+          >
+            <style>{`
+              .dsr-case-rows-view table { border-collapse: collapse; width: 100%; font-family: serif; }
+              .dsr-case-rows-view table td, .dsr-case-rows-view table th { border: 1px solid #333; padding: 4px 6px; vertical-align: top; }
+              .dsr-case-rows-view table tr:first-child td, .dsr-case-rows-view table tr:first-child th { background: #f3f4f6; font-weight: bold; }
+            `}</style>
+            <div dangerouslySetInnerHTML={{ __html: caseRowsHtml }} />
+          </div>
         )}
       </div>
     </div>
   );
 
   // Right panel body — toggles between extracted details and document view
-  // Both views always stay mounted so docx-preview doesn't lose its rendered DOM
   const renderRightPanelBody = (memo: Memo) => (
     <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
       <div style={{ display: rightPanelView === 'details' ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}>
