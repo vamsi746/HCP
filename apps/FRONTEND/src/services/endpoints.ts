@@ -26,6 +26,13 @@ export const deleteOfficer = (id: string) =>
 export const reassignOfficerSector = (id: string, sectorId: string) =>
   api.put(`/officers/${id}/reassign-sector`, { sectorId, role: 'PRIMARY_SI' });
 
+// Officer Memo Tracker
+export const getOfficerMemoTracker = (params?: Record<string, unknown>) =>
+  api.get('/officers/memo-tracker', { params });
+
+export const getOfficerMemos = (officerId: string) =>
+  api.get(`/officers/memo-tracker/${officerId}/memos`);
+
 // Violations
 export const getViolations = (params?: Record<string, unknown>) =>
   api.get('/violations', { params });
@@ -93,6 +100,8 @@ export const downloadDSRFile = (id: string) =>
 
 export const getDSRDownloadUrl = (id: string) =>
   `${api.defaults.baseURL}/dsr/${id}/download`;
+
+export const reparseDSR = (id: string) => api.post(`/dsr/${id}/reparse`);
 
 export const uploadDSR = (formData: FormData) =>
   api.post('/dsr/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } });

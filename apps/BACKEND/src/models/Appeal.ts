@@ -24,5 +24,6 @@ const appealSchema = new Schema(
 appealSchema.index({ officerId: 1 });
 appealSchema.index({ status: 1 });
 appealSchema.index({ slaDeadline: 1 });
+appealSchema.index({ status: 1, slaDeadline: 1 });
 
 export const Appeal = mongoose.model('Appeal', appealSchema);

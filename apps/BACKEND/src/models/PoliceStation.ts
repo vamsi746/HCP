@@ -14,5 +14,6 @@ const policeStationSchema = new Schema(
   { timestamps: true }
 );
 policeStationSchema.index({ circleId: 1 });
+policeStationSchema.index({ isActive: 1 });
 
 export const PoliceStation = mongoose.model('PoliceStation', policeStationSchema);

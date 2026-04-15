@@ -10,5 +10,6 @@ const sectorSchema = new Schema(
   { timestamps: true }
 );
 sectorSchema.index({ policeStationId: 1 });
+sectorSchema.index({ policeStationId: 1, isActive: 1 });
 
 export const Sector = mongoose.model('Sector', sectorSchema);

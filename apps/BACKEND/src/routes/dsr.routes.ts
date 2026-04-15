@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
-import { DSR, DSRStatus, ForceType } from '../models';
+import { DSR, DSRStatus, ForceType, DSRCategory } from '../models';
 import { authenticate } from '../middleware/auth';
 import { requireMinRank } from '../middleware/rbac';
 import { OfficerRank, Officer, PoliceStation, SectorOfficer, Sector, Memo } from '../models';
@@ -13,10 +13,11 @@ const router = Router();
 // GET /api/dsr — list DSRs
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { status, forceType, zoneId, startDate, endDate, page = '1', limit = '20' } = req.query;
+    const { status, forceType, dsrCategory, zoneId, startDate, endDate, page = '1', limit = '20' } = req.query;
     const filter: any = {};
     if (status) filter.processingStatus = status;
     if (forceType) filter.forceType = forceType;
+    if (dsrCategory) filter.dsrCategory = dsrCategory;
     if (zoneId) filter.zoneId = zoneId;
     if (startDate || endDate) {
       filter.date = {};
@@ -102,10 +103,14 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
     const file = req.file;
     if (!file) { res.status(400).json({ error: 'No file uploaded' }); return; }
 
-    const { forceType } = req.body;
-    if (!forceType || !Object.values(ForceType).includes(forceType)) {
-      res.status(400).json({ error: 'Invalid forceType. Must be CHARMINAR_GOLCONDA, RAJENDRANAGAR_SHAMSHABAD, or KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS' });
-      return;
+    const { forceType, dsrCategory: rawCategory } = req.body;
+    const dsrCategory = rawCategory || DSRCategory.SPECIAL_WINGS;
+
+    if (dsrCategory === DSRCategory.SPECIAL_WINGS) {
+      if (!forceType || !Object.values(ForceType).includes(forceType)) {
+        res.status(400).json({ error: 'Invalid forceType. Must be CHARMINAR_GOLCONDA, RAJENDRANAGAR_SHAMSHABAD, or KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS' });
+        return;
+      }
     }
 
     const ext = path.extname(file.originalname).toLowerCase();
@@ -120,15 +125,50 @@ router.post('/upload', authenticate, upload.single('file'), async (req: Request,
     // Create DSR record
     const dsr = await DSR.create({
       date: req.body.date || new Date(),
-      forceType,
+      dsrCategory,
+      forceType: dsrCategory === DSRCategory.SPECIAL_WINGS ? forceType : undefined,
       fileName: file.originalname,
       fileType: file.mimetype,
       filePath: `uploads/dsr/${safeFileName}`,
-      processingStatus: DSRStatus.PROCESSING,
+      processingStatus: dsrCategory === DSRCategory.NORMAL ? DSRStatus.COMPLETED : DSRStatus.PROCESSING,
       uploadedBy: req.user!.id,
     });
 
-    // Parse the document
+    // For NORMAL category: store document HTML only, skip parsing (no template yet)
+    if (dsrCategory === DSRCategory.NORMAL) {
+      try {
+        let documentHtml = '';
+        if (ext === '.docx') {
+          documentHtml = await extractFullHtmlFromDocx(file.buffer);
+        } else if (ext === '.doc') {
+          const docxBuffer = await convertDocToDocx(file.buffer);
+          if (docxBuffer) {
+            documentHtml = await extractFullHtmlFromDocx(docxBuffer);
+            const docxFileName = safeFileName.replace(/\\.doc$/i, '.docx');
+            const docxPath = path.join(uploadsDir, docxFileName);
+            fs.writeFileSync(docxPath, docxBuffer);
+            dsr.filePath = `uploads/dsr/${docxFileName}`;
+            dsr.fileType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          } else {
+            const rawText = await extractTextFromDoc(file.buffer);
+            documentHtml = `<pre style="white-space:pre-wrap;font-family:serif;font-size:12pt;line-height:1.6">${rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+          }
+        } else if (ext === '.txt') {
+          const rawText = file.buffer.toString('utf8');
+          documentHtml = `<pre style="white-space:pre-wrap;font-family:serif;font-size:12pt;line-height:1.6">${rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+        }
+        dsr.documentHtml = documentHtml;
+        await dsr.save();
+        res.status(201).json({ data: dsr, message: 'Normal DSR uploaded successfully. Parsing will be available once templates are configured.' });
+      } catch (err: any) {
+        console.error('[UPLOAD] Normal DSR HTML extraction error:', err);
+        await dsr.save();
+        res.status(201).json({ data: dsr, message: 'Normal DSR uploaded. Document preview may not be available.' });
+      }
+      return;
+    }
+
+    // Parse the document (Special Wings only)
     try {
       let rawText = '';
       let tableRows: string[][] = [];
@@ -398,6 +438,142 @@ router.get('/:id/download', authenticate, async (req: Request, res: Response) =>
     fs.createReadStream(absPath).pipe(res);
   } catch {
     res.status(500).json({ error: 'Failed to download file' });
+  }
+});
+
+// POST /api/dsr/:id/reparse — re-parse an already-uploaded DSR document
+router.post('/:id/reparse', authenticate, requireMinRank(OfficerRank.CI), async (req: Request, res: Response) => {
+  try {
+    const dsr = await DSR.findById(req.params.id);
+    if (!dsr) { res.status(404).json({ error: 'DSR not found' }); return; }
+    if (!dsr.filePath) { res.status(400).json({ error: 'No file associated with this DSR' }); return; }
+
+    const absPath = path.join(__dirname, '..', '..', dsr.filePath);
+    if (!fs.existsSync(absPath)) { res.status(404).json({ error: 'File not found on disk' }); return; }
+
+    const fileBuffer = fs.readFileSync(absPath);
+    const ext = path.extname(dsr.filePath).toLowerCase();
+
+    let rawText = '';
+    let tableRows: string[][] = [];
+    let documentHtml = '';
+
+    if (ext === '.docx') {
+      rawText = await extractTextFromDocx(fileBuffer);
+      tableRows = await extractTableRowsFromDocx(fileBuffer);
+      documentHtml = await extractFullHtmlFromDocx(fileBuffer);
+    } else if (ext === '.doc') {
+      const docxBuffer = await convertDocToDocx(fileBuffer);
+      if (docxBuffer) {
+        rawText = await extractTextFromDocx(docxBuffer);
+        tableRows = await extractTableRowsFromDocx(docxBuffer);
+        documentHtml = await extractFullHtmlFromDocx(docxBuffer);
+      } else {
+        rawText = await extractTextFromDoc(fileBuffer);
+        documentHtml = `<pre style="white-space:pre-wrap;font-family:serif;font-size:12pt;line-height:1.6">${rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+      }
+    } else {
+      rawText = fileBuffer.toString('utf8');
+      documentHtml = `<pre style="white-space:pre-wrap;font-family:serif;font-size:12pt;line-height:1.6">${rawText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`;
+    }
+
+    let parseResult;
+    if (tableRows.length > 0) {
+      parseResult = parseStructuredDSR(tableRows, rawText);
+    } else {
+      parseResult = parseTaskForceDSR(rawText);
+    }
+
+    // Match police stations, sectors, and officers
+    const parsedCases = [];
+    for (const c of parseResult.cases) {
+      const matchedPSId = await matchPoliceStation(c.policeStation);
+      let matchedOfficerId: string | null = null;
+      let matchedZoneId: string | null = null;
+      let matchedSectorId: string | null = null;
+      let matchedSHOId: string | null = null;
+
+      if (matchedPSId) {
+        const ps = await PoliceStation.findById(matchedPSId).populate('circleId').lean() as any;
+        if (ps?.circleId?.divisionId) {
+          const Division = require('../models').Division;
+          const div = await Division.findById(ps.circleId.divisionId).lean() as any;
+          if (div?.zoneId) matchedZoneId = div.zoneId.toString();
+        }
+        const sectors = await Sector.find({ policeStationId: matchedPSId }).lean();
+        if (sectors.length > 0 && c.sector) {
+          const sectorNum = c.sector.match(/\d+/)?.[0];
+          if (sectorNum) {
+            const matched = sectors.find(s => s.name.match(/\d+/)?.[0] === sectorNum);
+            if (matched) {
+              matchedSectorId = matched._id.toString();
+              const sectorOfficers = await SectorOfficer.find({ sectorId: matched._id, role: 'PRIMARY_SI', isActive: true }).lean();
+              for (const so of sectorOfficers) {
+                const off = await Officer.findById(so.officerId).select('remarks').lean();
+                if (new RegExp(`(?:sec(?:tor)?)[\\s\\-–]*${sectorNum}\\b`, 'i').test(off?.remarks || '')) {
+                  matchedOfficerId = so.officerId.toString();
+                  break;
+                }
+              }
+              if (!matchedOfficerId && sectorOfficers.length > 0) {
+                matchedOfficerId = sectorOfficers[0].officerId.toString();
+              }
+            }
+          }
+        }
+        // SHO
+        if (sectors.length > 0) {
+          const allSO = await SectorOfficer.find({ sectorId: { $in: sectors.map(s => s._id) }, role: 'PRIMARY_SI', isActive: true }).lean();
+          for (const so of allSO) {
+            const off = await Officer.findById(so.officerId).select('remarks').lean();
+            if ((off?.remarks || '').toLowerCase().includes('admin')) {
+              matchedSHOId = so.officerId.toString();
+              break;
+            }
+          }
+        }
+      }
+
+      parsedCases.push({
+        ...c,
+        matchedPSId: matchedPSId || undefined,
+        matchedZoneId: matchedZoneId || undefined,
+        matchedSectorId: matchedSectorId || undefined,
+        matchedOfficerId: matchedOfficerId || undefined,
+        matchedSHOId: matchedSHOId || undefined,
+      });
+    }
+
+    dsr.rawText = parseResult.rawText;
+    dsr.documentHtml = documentHtml || undefined;
+    dsr.parsedCases = parsedCases as any;
+    dsr.totalCases = parsedCases.length;
+    dsr.processingStatus = DSRStatus.COMPLETED;
+    dsr.processedAt = new Date();
+
+    if (parseResult.reportDate) {
+      const parts = parseResult.reportDate.split(/[-/.]/);
+      if (parts.length === 3) {
+        const d = new Date(`${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`);
+        if (!isNaN(d.getTime())) dsr.date = d;
+      }
+    }
+
+    await dsr.save();
+    console.log('[ROUTE] Re-parsed DSR', req.params.id, '→', parsedCases.length, 'cases');
+
+    const populated = await DSR.findById(dsr._id)
+      .populate('parsedCases.matchedPSId', 'name code')
+      .populate('parsedCases.matchedZoneId', 'name code')
+      .populate('parsedCases.matchedSectorId', 'name')
+      .populate('parsedCases.matchedOfficerId', 'name badgeNumber rank phone')
+      .populate('parsedCases.matchedSHOId', 'name badgeNumber rank phone')
+      .lean();
+
+    res.json({ data: populated });
+  } catch (err: any) {
+    console.error('[ROUTE] REPARSE ERROR:', err.message, err.stack);
+    res.status(500).json({ error: 'Re-parse failed', details: err.message });
   }
 });
 

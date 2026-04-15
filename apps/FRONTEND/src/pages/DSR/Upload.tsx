@@ -1,12 +1,12 @@
 import React, { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload as UploadIcon, CheckCircle, FileText, Loader2, ArrowLeft } from 'lucide-react';
+import { Upload as UploadIcon, CheckCircle, FileText, Loader2, ArrowLeft, Shield, FileBarChart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { uploadDSR } from '../../services/endpoints';
 import FilterDropdown from '../../components/FilterDropdown';
-import type { ForceType } from '../../types';
+import type { ForceType, DSRCategory } from '../../types';
 
 const FORCE_OPTIONS: { value: ForceType; label: string }[] = [
   { value: 'CHARMINAR_GOLCONDA', label: 'Charminar & Golconda (Task Force only)' },
@@ -17,6 +17,7 @@ const FORCE_OPTIONS: { value: ForceType; label: string }[] = [
 const DSRUpload: React.FC = () => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [dsrCategory, setDsrCategory] = useState<DSRCategory>('SPECIAL_WINGS');
   const [selectedForce, setSelectedForce] = useState<ForceType | ''>('');
   const [file, setFile] = useState<File | null>(null);
 
@@ -24,7 +25,11 @@ const DSRUpload: React.FC = () => {
     mutationFn: (formData: FormData) => uploadDSR(formData),
     onSuccess: (res) => {
       const dsr = res.data?.data;
-      toast.success(`DSR parsed successfully — ${dsr?.totalCases || 0} cases extracted`);
+      if (dsrCategory === 'NORMAL') {
+        toast.success('Normal DSR uploaded successfully');
+      } else {
+        toast.success(`DSR parsed successfully — ${dsr?.totalCases || 0} cases extracted`);
+      }
       setFile(null);
       setSelectedForce('');
       queryClient.invalidateQueries({ queryKey: ['dsrs'] });
@@ -49,11 +54,18 @@ const DSRUpload: React.FC = () => {
     maxFiles: 1,
   });
 
+  const canSubmit = dsrCategory === 'NORMAL'
+    ? !!file
+    : !!file && !!selectedForce;
+
   const handleUpload = () => {
-    if (!file || !selectedForce) return;
+    if (!canSubmit) return;
     const formData = new FormData();
-    formData.append('file', file);
-    formData.append('forceType', selectedForce);
+    formData.append('file', file!);
+    formData.append('dsrCategory', dsrCategory);
+    if (dsrCategory === 'SPECIAL_WINGS' && selectedForce) {
+      formData.append('forceType', selectedForce);
+    }
     mutation.mutate(formData);
   };
 
@@ -76,17 +88,78 @@ const DSRUpload: React.FC = () => {
 
       <div className="max-w-2xl mx-auto">
         <div className="border border-slate-300 bg-white p-6 space-y-6">
-          {/* Force Selection */}
+
+          {/* Category Selection */}
           <div>
-            <label className="block text-[12px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Zones <span className="text-red-600">*</span></label>
-            <FilterDropdown
-              variant="form"
-              placeholder="Select zones…"
-              value={selectedForce}
-              onChange={(v) => setSelectedForce(v as ForceType | '')}
-              options={FORCE_OPTIONS}
-            />
+            <label className="block text-[12px] font-bold text-slate-600 uppercase tracking-wider mb-2">DSR Type <span className="text-red-600">*</span></label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => { setDsrCategory('SPECIAL_WINGS'); setFile(null); }}
+                className={`relative flex items-center gap-3 p-4 border-2 transition-all text-left ${
+                  dsrCategory === 'SPECIAL_WINGS'
+                    ? 'border-slate-800 bg-slate-50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className={`p-2 ${dsrCategory === 'SPECIAL_WINGS' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                  <Shield size={20} />
+                </div>
+                <div>
+                  <div className="text-[13px] font-bold text-slate-800">Special Wings</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Task Force, H-Fast, H-New DSRs</div>
+                </div>
+                {dsrCategory === 'SPECIAL_WINGS' && (
+                  <div className="absolute top-2 right-2 w-2 h-2 bg-slate-800 rounded-full" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setDsrCategory('NORMAL'); setSelectedForce(''); setFile(null); }}
+                className={`relative flex items-center gap-3 p-4 border-2 transition-all text-left ${
+                  dsrCategory === 'NORMAL'
+                    ? 'border-slate-800 bg-slate-50 shadow-sm'
+                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                }`}
+              >
+                <div className={`p-2 ${dsrCategory === 'NORMAL' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                  <FileBarChart size={20} />
+                </div>
+                <div>
+                  <div className="text-[13px] font-bold text-slate-800">Normal Cases</div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">Regular PS / Station-level DSRs</div>
+                </div>
+                {dsrCategory === 'NORMAL' && (
+                  <div className="absolute top-2 right-2 w-2 h-2 bg-slate-800 rounded-full" />
+                )}
+              </button>
+            </div>
           </div>
+
+          {/* Force Selection — only for Special Wings */}
+          {dsrCategory === 'SPECIAL_WINGS' && (
+            <div>
+              <label className="block text-[12px] font-bold text-slate-600 uppercase tracking-wider mb-1.5">Zones <span className="text-red-600">*</span></label>
+              <FilterDropdown
+                variant="form"
+                placeholder="Select zones…"
+                value={selectedForce}
+                onChange={(v) => setSelectedForce(v as ForceType | '')}
+                options={FORCE_OPTIONS}
+              />
+            </div>
+          )}
+
+          {/* Info banner for Normal */}
+          {dsrCategory === 'NORMAL' && (
+            <div className="bg-amber-50 border border-amber-200 px-4 py-3">
+              <div className="text-[12px] font-bold text-amber-800 uppercase tracking-wider mb-1">Document Upload Only</div>
+              <p className="text-[12px] text-amber-700 leading-relaxed">
+                Normal DSR parsing & memo generation will be enabled once the DSR template and memo format are configured. 
+                For now, the document will be stored for viewing and future processing.
+              </p>
+            </div>
+          )}
 
           {/* File Upload */}
           <div>
@@ -124,18 +197,18 @@ const DSRUpload: React.FC = () => {
           {/* Submit */}
           <button
             onClick={handleUpload}
-            disabled={!file || !selectedForce || mutation.isPending}
+            disabled={!canSubmit || mutation.isPending}
             className="w-full flex items-center justify-center gap-2 bg-slate-800 text-white py-3 text-[13px] font-bold uppercase tracking-wider hover:bg-slate-900 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {mutation.isPending ? (
               <>
                 <Loader2 size={18} className="animate-spin" />
-                Parsing Document…
+                {dsrCategory === 'NORMAL' ? 'Uploading Document…' : 'Parsing Document…'}
               </>
             ) : (
               <>
                 <UploadIcon size={18} />
-                Upload & Parse
+                {dsrCategory === 'NORMAL' ? 'Upload Document' : 'Upload & Parse'}
               </>
             )}
           </button>

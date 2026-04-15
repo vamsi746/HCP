@@ -75,5 +75,7 @@ memoSchema.index({ status: 1, zoneId: 1, createdAt: -1 });
 memoSchema.index({ status: 1, psId: 1, createdAt: -1 });
 memoSchema.index({ status: 1, date: -1 });
 memoSchema.index({ zoneId: 1, psId: 1, status: 1, createdAt: -1 });
+memoSchema.index({ dsrId: 1, status: 1 });
+memoSchema.index({ caseId: 1 });
 
 export const Memo = mongoose.model('Memo', memoSchema);

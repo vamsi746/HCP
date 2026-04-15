@@ -53,6 +53,7 @@ const officerSchema = new Schema<IOfficer>(
 
 officerSchema.index({ rank: 1 });
 officerSchema.index({ isActive: 1 });
+officerSchema.index({ rank: 1, isActive: 1 });
 
 export const Officer = mongoose.model<IOfficer>('Officer', officerSchema);
 
@@ -67,6 +68,9 @@ const sectorOfficerSchema = new Schema(
   },
   { timestamps: true }
 );
+
+sectorOfficerSchema.index({ sectorId: 1, role: 1, isActive: 1 });
+sectorOfficerSchema.index({ officerId: 1 });
 
 export const SectorOfficer = mongoose.model('SectorOfficer', sectorOfficerSchema);
 

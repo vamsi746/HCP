@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Underline } from '@tiptap/extension-underline';
@@ -117,9 +117,15 @@ const FontSize = TextStyle.extend({
   },
 });
 
+// True A4 at 96 CSS-px per inch: 210mm × 297mm
+const A4_WIDTH = 794;   // 210mm at 96dpi
+const A4_HEIGHT = 1123;  // 297mm at 96dpi
+
 const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = true }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const colorInputRef = useRef<HTMLInputElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
+  const [numPages, setNumPages] = useState(1);
 
   const editor = useEditor({
     extensions: [
@@ -185,6 +191,18 @@ const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = t
   useEffect(() => {
     if (editor) editor.setEditable(editable);
   }, [editor, editable]);
+
+  // Track content height to calculate page count
+  useEffect(() => {
+    const el = paperRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const h = el.scrollHeight;
+      setNumPages(Math.max(1, Math.ceil(h / A4_HEIGHT)));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (editor && content !== undefined && editor.getHTML() !== content) {
@@ -395,22 +413,39 @@ const MemoEditor: React.FC<MemoEditorProps> = ({ content, onUpdate, editable = t
         </div>
       )}
 
-      {/* ── A4 Paper area ── */}
+      {/* ── A4 Paper area — single continuous paper with page break lines ── */}
       <div className="bg-gray-100 p-6 overflow-auto" style={{ minHeight: 800 }}>
-        <div
-          className="bg-white mx-auto shadow-lg border border-gray-200"
-          style={{
-            width: 816,          /* ≈ A4 width at 96dpi */
-            minHeight: 1056,     /* ≈ A4 height at 96dpi */
-          }}
-        >
-          <EditorContent editor={editor} />
+        <div className="mx-auto relative" style={{ width: A4_WIDTH }}>
+          <div
+            ref={paperRef}
+            className="bg-white shadow-lg border border-gray-200"
+            style={{ minHeight: A4_HEIGHT }}
+          >
+            <EditorContent editor={editor} />
+          </div>
+          {/* Page break indicator lines */}
+          {Array.from({ length: numPages - 1 }).map((_, i) => {
+            const y = (i + 1) * A4_HEIGHT;
+            return (
+              <div
+                key={i}
+                className="absolute left-0 right-0 pointer-events-none flex items-center"
+                style={{ top: y, zIndex: 20 }}
+              >
+                <div className="flex-1 border-t border-dashed border-gray-400" />
+                <span className="mx-2 text-[10px] text-gray-400 bg-white px-2 rounded-sm whitespace-nowrap">
+                  Page {i + 2}
+                </span>
+                <div className="flex-1 border-t border-dashed border-gray-400" />
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* ── Footer bar ── */}
       <div className="border-t border-gray-200 bg-gray-50 px-4 py-1.5 flex items-center justify-between text-[10px] text-gray-400">
-        <span>Page: A4 (210mm × 297mm)</span>
+        <span>A4 (210mm × 297mm) · {numPages} page{numPages > 1 ? 's' : ''}</span>
         <span>Tab = indent · Shift+Tab = outdent · Shift+Enter = line break · Ctrl+A = select all</span>
       </div>
     </div>

@@ -85,6 +85,7 @@ export interface Case {
 
 export type DSRStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'MANUAL_REVIEW';
 export type ForceType = 'CHARMINAR_GOLCONDA' | 'RAJENDRANAGAR_SHAMSHABAD' | 'KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS';
+export type DSRCategory = 'SPECIAL_WINGS' | 'NORMAL';
 export interface ExtractedLocation {
   type: 'ps_reference' | 'residential' | 'incident_area';
   rawText: string;
@@ -128,6 +129,7 @@ export interface ParsedCase {
 export interface DSR {
   _id: string;
   date: string;
+  dsrCategory?: DSRCategory;
   forceType: ForceType;
   raidedBy?: string;
   fileName?: string;

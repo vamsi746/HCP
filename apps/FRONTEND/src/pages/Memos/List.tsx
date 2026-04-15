@@ -167,7 +167,7 @@ const MemoList: React.FC = () => {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteMemo(id),
-    onSuccess: () => { toast.success('Memo deleted'); queryClient.invalidateQueries({ queryKey: ['memos'] }); queryClient.invalidateQueries({ queryKey: ['memos-counts'] }); setDeleteItem(null); },
+    onSuccess: () => { toast.success('Memo deleted'); queryClient.invalidateQueries({ queryKey: ['memos'] }); queryClient.invalidateQueries({ queryKey: ['memos-counts'] }); queryClient.invalidateQueries({ queryKey: ['memos-pending-count'] }); setDeleteItem(null); },
     onError: () => toast.error('Failed to delete memo'),
   });
 
@@ -299,7 +299,7 @@ const MemoList: React.FC = () => {
                 return (
                   <tr
                     key={memo._id}
-                    onClick={() => navigate(`/compliance/${memo._id}`)}
+                    onClick={() => navigate(`/memos/${memo._id}`)}
                     className={`border-b border-slate-200 cursor-pointer transition-colors hover:bg-blue-50/60 ${
                       idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'
                     }`}
@@ -346,7 +346,7 @@ const MemoList: React.FC = () => {
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/compliance/${memo._id}`); }}
+                          onClick={(e) => { e.stopPropagation(); navigate(`/memos/${memo._id}`); }}
                           className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
                           title="View / Edit"
                         >

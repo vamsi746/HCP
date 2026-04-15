@@ -45,9 +45,10 @@ const caseSchema = new Schema(
   { timestamps: true }
 );
 
-caseSchema.index({ policeStationId: 1, caseDate: 1 });
-caseSchema.index({ crimeType: 1 });
-caseSchema.index({ handledBy: 1 });
+caseSchema.index({ policeStationId: 1, caseDate: -1 });
+caseSchema.index({ crimeType: 1, caseDate: -1 });
+caseSchema.index({ handledBy: 1, caseDate: -1 });
 caseSchema.index({ isMissedBySI: 1 });
+caseSchema.index({ dsrId: 1 });
 
 export const Case = mongoose.model('Case', caseSchema);

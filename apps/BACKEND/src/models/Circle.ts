@@ -10,5 +10,6 @@ const circleSchema = new Schema(
   { timestamps: true }
 );
 circleSchema.index({ divisionId: 1 });
+circleSchema.index({ divisionId: 1, isActive: 1 });
 
 export const Circle = mongoose.model('Circle', circleSchema);

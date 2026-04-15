@@ -28,7 +28,7 @@ const DSRDetail: React.FC = () => {
       const res = await generateMemo({ dsrId: id, caseId });
       const memo = res.data.data;
       toast.success('Memo generated');
-      navigate(`/compliance/${memo._id}`);
+      navigate(`/memos/${memo._id}`);
     } catch {
       toast.error('Failed to generate memo');
     } finally {

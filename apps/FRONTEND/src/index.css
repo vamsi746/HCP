@@ -15,6 +15,58 @@ body {
 .tiptap {
   outline: none;
 }
+
+/* Responsive memo viewer — fills container width, no wasted space */
+.memo-viewer-responsive .ProseMirror {
+  padding: 20px 24px !important;
+  min-height: auto !important;
+  max-width: 100% !important;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+/* Strip away MemoEditor chrome */
+.memo-viewer-responsive * {
+  box-shadow: none !important;
+}
+.memo-viewer-responsive > div {
+  border: none !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+/* Hide grey bg, padding from paper area */
+.memo-viewer-responsive .bg-gray-100 {
+  padding: 0 !important;
+  min-height: 0 !important;
+  background: transparent !important;
+  overflow: hidden !important;
+}
+/* Force A4 paper to fill width */
+.memo-viewer-responsive .bg-white {
+  width: 100% !important;
+  min-height: 0 !important;
+  border: none !important;
+  margin: 0 !important;
+}
+/* Hide page break indicators and footer */
+.memo-viewer-responsive .pointer-events-none {
+  display: none !important;
+}
+.memo-viewer-responsive > div > div:last-child {
+  display: none !important;
+}
+.memo-viewer-responsive table {
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+.memo-viewer-responsive td,
+.memo-viewer-responsive th {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+.memo-viewer-responsive img {
+  max-width: 100% !important;
+  height: auto !important;
+}
 .tiptap p {
   margin: 0.3em 0;
 }
@@ -105,44 +157,69 @@ body {
 
 /* ── DSR Full Document Viewer (docx-preview) ── */
 .dsr-docx-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 16px;
-  min-height: 100%;
+  display: inline-block;
+  padding: 0;
+  min-width: 100%;
 }
 .dsr-docx-container .docx-wrapper {
-  background: transparent !important;
-  padding: 0 !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  overflow: hidden !important;
+  background: white !important;
+  padding: 8px !important;
+  width: auto !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  overflow: visible !important;
 }
 .dsr-docx-container .docx-wrapper > section.docx {
-  box-shadow: 0 2px 12px rgba(0,0,0,0.12) !important;
-  margin: 0 auto 20px !important;
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: 100% !important;
-  padding: 15mm 10mm !important;
+  box-shadow: none !important;
+  margin: 0 !important;
+  width: auto !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
   box-sizing: border-box !important;
+  overflow: visible !important;
+  page-break-before: auto !important;
+  break-before: auto !important;
+}
+.dsr-docx-container .docx-wrapper > section.docx:empty {
+  display: none !important;
+}
+.dsr-docx-container .docx-wrapper > section.docx + section.docx {
+  border-top: 1px dashed #ccc;
+  padding-top: 4px !important;
+  margin-top: 4px !important;
+}
+.dsr-docx-container .docx-wrapper article {
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
 }
 .dsr-docx-container .docx-wrapper table {
-  width: 100% !important;
-  max-width: 100% !important;
-  table-layout: fixed !important;
+  width: auto !important;
+  min-width: 100% !important;
+  max-width: none !important;
+  table-layout: auto !important;
   border-collapse: collapse;
 }
 .dsr-docx-container .docx-wrapper table td,
 .dsr-docx-container .docx-wrapper table th {
-  word-break: break-word !important;
+  word-break: normal !important;
   overflow-wrap: break-word !important;
-  padding: 4px 6px !important;
-  width: auto !important;
+  padding: 2px 4px !important;
   min-width: 0 !important;
+  white-space: pre-wrap !important;
+  font-size: 8pt !important;
 }
 .dsr-docx-container .docx-wrapper col {
   width: auto !important;
+}
+.dsr-docx-container .docx-wrapper p {
+  margin: 1px 0 !important;
+  font-size: 8pt !important;
 }
 
 /* ── DSR HTML fallback (.doc / .txt files) ── */

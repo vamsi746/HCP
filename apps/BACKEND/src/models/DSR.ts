@@ -11,6 +11,11 @@ export enum ForceType {
   KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS = 'KHAIRATABAD_SECUNDERABAD_JUBILEEHILLS',
 }
 
+export enum DSRCategory {
+  SPECIAL_WINGS = 'SPECIAL_WINGS',
+  NORMAL = 'NORMAL',
+}
+
 // A single extracted location from case text
 const extractedLocationSchema = new Schema(
   {
@@ -63,7 +68,8 @@ const parsedCaseSchema = new Schema(
 const dsrSchema = new Schema(
   {
     date: { type: Date, required: true },
-    forceType: { type: String, enum: Object.values(ForceType), required: true },
+    dsrCategory: { type: String, enum: Object.values(DSRCategory), default: DSRCategory.SPECIAL_WINGS },
+    forceType: { type: String, enum: Object.values(ForceType) },
     zoneId: { type: Schema.Types.ObjectId, ref: 'Zone' },
     policeStationId: { type: Schema.Types.ObjectId, ref: 'PoliceStation' },
     raidedBy: String, // Force that conducted the raid, selected during upload
@@ -84,9 +90,13 @@ const dsrSchema = new Schema(
   { timestamps: true }
 );
 
-dsrSchema.index({ date: 1 });
+dsrSchema.index({ date: -1 });
 dsrSchema.index({ forceType: 1 });
 dsrSchema.index({ processingStatus: 1 });
-dsrSchema.index({ zoneId: 1, date: 1 });
+dsrSchema.index({ zoneId: 1, date: -1 });
+dsrSchema.index({ processingStatus: 1, date: -1 });
+dsrSchema.index({ forceType: 1, date: -1 });
+dsrSchema.index({ forceType: 1, processingStatus: 1, date: -1 });
+dsrSchema.index({ dsrCategory: 1, date: -1 });
 
 export const DSR = mongoose.model('DSR', dsrSchema);

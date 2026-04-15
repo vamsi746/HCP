@@ -17,4 +17,6 @@ const zoneSchema = new Schema<IZone>(
   { timestamps: true }
 );
 
+zoneSchema.index({ isActive: 1 });
+
 export const Zone = mongoose.model<IZone>('Zone', zoneSchema);

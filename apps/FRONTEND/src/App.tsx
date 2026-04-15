@@ -20,6 +20,7 @@ import Reports from './pages/Reports';
 import Mapping from './pages/Mapping';
 import GIS from './pages/GIS';
 import Review from './pages/Review';
+import OfficerTracker from './pages/OfficerTracker';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useSelector((s: RootState) => s.auth);
@@ -49,11 +50,12 @@ const App: React.FC = () => {
           <Route path="/" element={<Dashboard />} />
           <Route path="/officers" element={<Officers />} />
           <Route path="/officers/:id" element={<OfficerDetail />} />
+          <Route path="/officer-tracker" element={<OfficerTracker />} />
           <Route path="/dsr" element={<DSRList />} />
           <Route path="/dsr/upload" element={<DSRUpload />} />
           <Route path="/dsr/:id" element={<DSRDetail />} />
-          <Route path="/compliance" element={<MemoList />} />
-          <Route path="/compliance/:id" element={<MemoEditorPage />} />
+          <Route path="/memos" element={<MemoList />} />
+          <Route path="/memos/:id" element={<MemoEditorPage />} />
           <Route path="/actions" element={<Actions />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/review" element={<Review />} />

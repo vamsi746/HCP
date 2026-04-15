@@ -150,6 +150,14 @@ export async function extractTableRowsFromDocx(buffer: Buffer): Promise<string[]
         .replace(/&gt;/g, '>')
         .replace(/&nbsp;/g, ' ')
         .replace(/&quot;/g, '"')
+        .replace(/&apos;|&#39;/g, "'")
+        .replace(/&mdash;|&#8212;/g, '\u2014')
+        .replace(/&ndash;|&#8211;/g, '\u2013')
+        .replace(/&lsquo;|&#8216;/g, '\u2018')
+        .replace(/&rsquo;|&#8217;/g, '\u2019')
+        .replace(/&ldquo;|&#8220;/g, '\u201C')
+        .replace(/&rdquo;|&#8221;/g, '\u201D')
+        .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n)))
         .trim();
       cells.push(cellText);
     }
@@ -183,7 +191,7 @@ function normCompare(s: string): string {
 const ZONE_NAMES = [
   'Charminar', 'Golconda', 'Golkonda', 'Falaknuma',
   'Jubilee Hills', 'Khairtabad', 'Khairthabad',
-  'Rajendranagar', 'Secunderabad', 'Secundrabad',
+  'Rajendranagar', 'Rajendra Nagar', 'Secunderabad', 'Secundrabad',
   'Shamshabad', 'North', 'South', 'East', 'West', 'Central',
 ];
 
@@ -256,7 +264,8 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
   const datePatterns = [
     /for\s+the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
     /the\s+day\s+(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
-    /Dated[:\s]+\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+    /Dated?[:\s]+\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
+    /dt\.?\s*(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})/i,
   ];
   for (const pat of datePatterns) {
     const m = rawText.match(pat);
@@ -272,23 +281,28 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
     zoneCoverage = forceMatch[1].trim();
   }
 
-  // Find the main DSR table header row and its column count
-  let colOffset = 0;
-  const isHeaderRow = (joined: string) => (joined.includes('sl') || /\bsi[.\s]/.test(joined)) && (joined.includes('zone') || joined.includes('p.s'));
+  // ── Find the ANNEXURE-I header row and dynamically map columns ──
+  const isAnnexureIHeader = (row: string[]) => {
+    const joined = row.map(c => c.toLowerCase()).join('|');
+    // Must have serial number indicator AND (zone or PS reference) AND nature/case/accused keywords
+    const hasSerial = /\bs[il]\.?\s*n|serial/i.test(joined);
+    const hasZonePS = joined.includes('zone') || /p\.?\s*s\.?/i.test(joined);
+    const hasStructural = /nature|accused|seiz|crime|action\s*taken/i.test(joined);
+    // Must NOT be ANNEXURE-II (which has "brief facts")
+    const isBriefFacts = joined.includes('brief');
+    // Check that multiple cells contain header-like short text (not long data narratives)
+    const shortCells = row.filter(c => c.trim().length > 0 && c.trim().length < 60).length;
+    return hasSerial && hasZonePS && hasStructural && !isBriefFacts && shortCells >= 5;
+  };
 
   let headerIdx = -1;
   let expectedCols = 0;
   for (let i = 0; i < rows.length; i++) {
     const joined = rows[i].map(c => c.toLowerCase()).join('|');
-    if (isHeaderRow(joined)) {
+    if (isAnnexureIHeader(rows[i])) {
       headerIdx = i;
       expectedCols = rows[i].length;
       console.log('[PARSER-STRUCTURED] Header row at index', i, 'with', expectedCols, 'columns:', rows[i].map(c => c.slice(0, 30)));
-      if (expectedCols >= 11) {
-        colOffset = 0;
-      } else if (expectedCols >= 10) {
-        colOffset = -1;
-      }
       break;
     }
   }
@@ -299,29 +313,68 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
     return { reportDate, forceDescription, zoneCoverage, cases, rawText, totalCases: 0 };
   }
 
+  // ── Dynamic column mapping from header text ──
+  const header = rows[headerIdx];
+  const colMap: Record<string, number> = {};
+  for (let ci = 0; ci < header.length; ci++) {
+    const h = header[ci].toLowerCase().replace(/[\r\n]+/g, ' ');
+    if (/s[il]\.?\s*n|serial/i.test(h) && colMap['slNo'] === undefined) colMap['slNo'] = ci;
+    else if (/zone/i.test(h) && /p\.?\s*s|name/i.test(h) && colMap['zonePS'] === undefined) colMap['zonePS'] = ci;
+    else if (/zone/i.test(h) && colMap['zonePS'] === undefined) colMap['zonePS'] = ci;
+    else if (/vice/i.test(h) && colMap['vice'] === undefined) colMap['vice'] = ci;
+    else if (/action/i.test(h) && colMap['action'] === undefined) colMap['action'] = ci;
+    else if (/nature/i.test(h) && colMap['nature'] === undefined) colMap['nature'] = ci;
+    else if ((/cr\.?\s*n/i.test(h) || /p\.?\s*s.*cr/i.test(h) || /u\/s/i.test(h)) && colMap['crDetails'] === undefined) colMap['crDetails'] = ci;
+    else if (/accused\s*particular|type\s*of\s*work|work.*accused/i.test(h) && colMap['accused'] === undefined) colMap['accused'] = ci;
+    else if (/seiz|worth/i.test(h) && colMap['seized'] === undefined) colMap['seized'] = ci;
+    else if (/no\.?\s*(?:of\s*)?accused/i.test(h) && colMap['numAccused'] === undefined) colMap['numAccused'] = ci;
+    else if (/no\.?\s*(?:of\s*)?case/i.test(h) && colMap['numCases'] === undefined) colMap['numCases'] = ci;
+    else if (/abscon/i.test(h) && colMap['absconding'] === undefined) colMap['absconding'] = ci;
+  }
+
+  console.log('[PARSER-STRUCTURED] ANNEXURE-I column map:', colMap);
+
+  // Helper to safely get a cell value by mapped column name
+  const cell = (row: string[], key: string): string => {
+    const idx = colMap[key];
+    return (idx !== undefined && idx < row.length) ? (row[idx] || '') : '';
+  };
+
   // Only process rows immediately after the header, within the same table
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
 
-    // Stop when column count changes (different table started)
-    if (Math.abs(row.length - expectedCols) > 2) {
-      console.log(`[PARSER-STRUCTURED] Row ${i}: col count ${row.length} != expected ${expectedCols}, stopping`);
-      break;
+    // Skip rows with very different column count (merged summary rows) instead of stopping
+    if (Math.abs(row.length - expectedCols) > 3) {
+      console.log(`[PARSER-STRUCTURED] Row ${i}: col count ${row.length} vs expected ${expectedCols}, skipping`);
+      continue;
     }
 
     const joined = row.map(c => c.toLowerCase()).join('|');
-    // Stop at "Total Cases" — end of main table
-    if (/total\s*cases/i.test(joined)) break;
-    // Stop at another header row (new table)
-    if (isHeaderRow(joined)) {
+    // Stop at "Total" summary row (matches "Total Cases", "Total Persons", "Total" etc.)
+    if (/^\s*total\b/i.test(row[0] || '')) break;
+    // Stop if this row IS a header for a different table — check that multiple short cells
+    // contain structural header words (not just data cells that happen to contain those words)
+    const headerLikeCells = row.filter(c => {
+      const t = c.trim().toLowerCase().replace(/[\r\n]+/g, ' ');
+      return t.length > 2 && t.length < 60 &&
+        /^(s[il]\.?\s*n|zone|nature|accused|action|seiz|brief|abscon|no\.?\s*of|worth|property|crime|vice|i\.?\s*r\.?)/i.test(t);
+    });
+    if (headerLikeCells.length >= 4) {
+      console.log(`[PARSER-STRUCTURED] Row ${i}: different table header detected (${headerLikeCells.length} header-like cells), stopping`);
+      break;
+    }
+    // Stop at another ANNEXURE-I-like header row (but not ANNEXURE-II)
+    if (row.length >= expectedCols - 1 && isAnnexureIHeader(row)) {
       console.log(`[PARSER-STRUCTURED] Row ${i}: another header row detected, stopping`);
       break;
     }
 
-    // Accept data rows: Sl.No is a number, OR Sl.No empty but cell has Zone/PS data
+    // Accept data rows: Sl.No is a number, OR has Zone/PS data, OR has substantive content
     const firstCell = (row[0] || '').trim();
     const hasSlNo = /^\d+/.test(firstCell);
-    const hasZonePSData = row.length >= 2 && /(Zone|PS\b|Sector)/i.test(row[1] || '');
+    const colZonePSRaw = cell(row, 'zonePS');
+    const hasZonePSData = /(Zone|PS\b|Sector)/i.test(colZonePSRaw);
     const hasSubstantiveData = row.some((c, idx) => idx > 0 && c.trim().length > 3 && c.trim() !== '--');
     if (!hasSlNo && !hasZonePSData && !hasSubstantiveData) continue;
 
@@ -330,41 +383,18 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
     const allPlaceholder = dataCells.every(c => !c.trim() || c.trim() === '--');
     if (allPlaceholder) continue;
 
-    // Log row for debugging
-    console.log(`[PARSER-STRUCTURED] Row (${row.length} cells):`, row.map(c => c.slice(0, 40)));
-
-    // Determine column positions based on detected column count
-    let colSlNo: string, colZonePS: string, colVice: string, colAction: string;
-    let colNature: string, colCrDetails: string, colAccused: string;
-    let colSeized: string, colNumAcc: string, colNumCases: string, colAbsconding: string;
-
-    if (colOffset === 0 && row.length >= 11) {
-      // 11-column layout: Sl.No is separate from Zone
-      colSlNo     = row[0] || '';
-      colZonePS   = row[1] || '';
-      colVice     = row[2] || '';
-      colAction   = row[3] || '';
-      colNature   = row[4] || '';
-      colCrDetails = row[5] || '';
-      colAccused  = row[6] || '';
-      colSeized   = row[7] || '';
-      colNumAcc   = row[8] || '';
-      colNumCases = row[9] || '';
-      colAbsconding = row[10] || '';
-    } else {
-      // 10-column layout: Sl.No merged with Zone+PS+Sector
-      colSlNo     = row[0] || '';
-      colZonePS   = row[0] || ''; // same cell
-      colVice     = row[1] || '';
-      colAction   = row[2] || '';
-      colNature   = row[3] || '';
-      colCrDetails = row[4] || '';
-      colAccused  = row[5] || '';
-      colSeized   = row[6] || '';
-      colNumAcc   = row[7] || '';
-      colNumCases = row[8] || '';
-      colAbsconding = row[9] || '';
-    }
+    // Extract cell values using dynamic column map
+    const colSlNo      = cell(row, 'slNo');
+    const colZonePS    = cell(row, 'zonePS') || cell(row, 'slNo'); // fallback if zone merged with slNo
+    const colVice      = cell(row, 'vice');
+    const colAction    = cell(row, 'action');
+    const colNature    = cell(row, 'nature');
+    const colCrDetails = cell(row, 'crDetails');
+    const colAccused   = cell(row, 'accused');
+    const colSeized    = cell(row, 'seized');
+    const colNumAcc    = cell(row, 'numAccused');
+    const colNumCases  = cell(row, 'numCases');
+    const colAbsconding = cell(row, 'absconding');
 
     // ── Sl. No ──
     const slMatch = colSlNo.match(/^(\d+)/);
@@ -374,19 +404,49 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
     let zone = '';
     const zoneMatch = colZonePS.match(ZONE_RE);
     if (zoneMatch) zone = zoneMatch[0].replace(/\s+/g, ' ').trim();
+    // Fallback: check if any zone name appears without "Zone" suffix
+    if (!zone) {
+      for (const zn of ZONE_NAMES) {
+        if (new RegExp(zn.replace(/\s+/g, '\\s*'), 'i').test(colZonePS)) {
+          zone = zn;
+          break;
+        }
+      }
+    }
 
     let policeStation = '';
-    const psMatches = colZonePS.match(/\b([A-Za-z][A-Za-z .]{1,30}?)\s+PS\b/g);
+    // Method 1: "XXX PS" pattern (including hyphens, digits in PS names)
+    const psMatches = colZonePS.match(/\b([A-Za-z][A-Za-z0-9 .\-]{1,30}?)\s+PS\b/g);
     if (psMatches) {
       for (const psm of psMatches) {
         let cleaned = psm.replace(/\s+PS\s*$/i, '').trim();
-        if (/^(SHO|the|of|to|from|Name|SI|DOR|Cr|U|IPC|BNS)$/i.test(cleaned)) continue;
+        if (/^(SHO|the|of|to|from|Name|SI|DOR|Cr|U|IPC|BNS|Inspector|Head|Sub)$/i.test(cleaned)) continue;
         if (ZONE_NAMES.some(z => normCompare(cleaned) === normCompare(z))) continue;
         if (/Zone/i.test(cleaned)) continue;
         if (cleaned.length > 1 && cleaned.length < 35) {
           policeStation = cleaned;
           break;
         }
+      }
+    }
+    // Method 2: Find lines in the zone+PS cell that are PS names (not zone names, "Zone", "Sector")
+    if (!policeStation) {
+      const lines = colZonePS.split('\n').map(l => l.trim()).filter(Boolean);
+      for (const line of lines) {
+        if (/zone/i.test(line)) continue; // skip any line containing "Zone"
+        if (ZONE_NAMES.some(z => normCompare(line).includes(normCompare(z)) || normCompare(z).includes(normCompare(line)))) continue;
+        if (/sector/i.test(line)) continue;
+        if (line.length > 1 && line.length < 40) {
+          policeStation = line;
+          break;
+        }
+      }
+    }
+    // Method 3: First line of the Cr details column often starts with the PS name
+    if (!policeStation && colCrDetails) {
+      const firstLine = (colCrDetails.split('\n')[0] || '').replace(/\s*PS\s*$/i, '').trim();
+      if (firstLine.length > 1 && firstLine.length < 40 && !/Cr\.?\s*No/i.test(firstLine) && !/U\/s/i.test(firstLine)) {
+        policeStation = firstLine;
       }
     }
 
@@ -405,11 +465,22 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
 
     // ── PS + Cr.No + U/Sec + DOR ──
     let crNo = '';
-    const crMatch = colCrDetails.match(/Cr\.?\s*No\.?\s*:?\s*([\d\s/]+)/i);
-    if (crMatch) crNo = crMatch[1].replace(/\s/g, '').trim();
+    // Accept digits, underscores, blanks, and / in Cr.No (underscores/blanks are placeholders)
+    const crMatch = colCrDetails.match(/Cr(?:ime)?\.?\s*No\.?\s*[:.\-]?\s*([\d_\s/]+\/\s*\d{2,4})/i);
+    if (crMatch) {
+      crNo = crMatch[1].replace(/\s/g, '').replace(/_+/g, '_').trim();
+    } else {
+      // Fallback: any digits/underscores after Cr.No, stop before U/s
+      const crFallback = colCrDetails.match(/Cr(?:ime)?\.?\s*No\.?\s*[:.\-]?\s*([\d_\s/]+)/i);
+      if (crFallback) {
+        let val = crFallback[1].replace(/\s/g, '').trim();
+        // Don't include section numbers
+        if (val.length <= 20) crNo = val;
+      }
+    }
 
     let sections = '';
-    const secMatch = colCrDetails.match(/U\/s(?:ec)?\s+([\s\S]+?)(?:[,\s]+(?:DOR|D\.O\.R|dated)\b|\n\s*\n|$)/i);
+    const secMatch = colCrDetails.match(/U\/[sS](?:ec)?\.?\s+([\s\S]+?)(?:[,\s]+(?:DOR|D\.O\.R|dated)\b|\n\s*\n|$)/i);
     if (secMatch) sections = norm(secMatch[1]).replace(/[,\s]+$/, '');
 
     let dor = '';
@@ -432,9 +503,19 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
 
     if (!policeStation && !crNo) continue;
 
-    // De-duplicate
-    const dupeKey = `${(crNo || '').toLowerCase()}|${(policeStation || '').toLowerCase()}`;
-    if (dupeKey !== '|' && cases.some(c => `${(c.crNo || '').toLowerCase()}|${(c.policeStation || '').toLowerCase()}` === dupeKey)) continue;
+    // De-duplicate: use crNo + PS + natureOfCase + slNo
+    // Include slNo to allow genuinely different cases at the same PS with same nature
+    const isPlaceholderCr = !crNo || /^_+\/?/.test(crNo);
+    const dupeKey = isPlaceholderCr
+      ? `${(policeStation || '').toLowerCase()}|${(natureOfCase || '').toLowerCase()}`
+      : `${(crNo || '').toLowerCase()}|${(policeStation || '').toLowerCase()}`;
+    if (dupeKey && cases.some(c => {
+      const cIsPlaceholder = !c.crNo || /^_+\/?/.test(c.crNo);
+      const cKey = cIsPlaceholder
+        ? `${(c.policeStation || '').toLowerCase()}|${(c.natureOfCase || '').toLowerCase()}`
+        : `${(c.crNo || '').toLowerCase()}|${(c.policeStation || '').toLowerCase()}`;
+      return cKey === dupeKey;
+    })) continue;
 
     const extractedLocations = extractLocations(colZonePS + ' ' + colAccused, policeStation);
 
@@ -457,8 +538,8 @@ export function parseStructuredDSR(rows: string[][], rawText: string): DSRParseR
     });
   }
 
-  // Enrich with Annexure II (brief facts, detailed accused)
-  enrichFromAnnexureII(rawText, cases);
+  // Enrich with Annexure II (brief facts, detailed accused) — use structured rows
+  enrichFromAnnexureIIRows(rows, cases);
 
   console.log('[PARSER-STRUCTURED] Total cases parsed:', cases.length);
 
@@ -855,6 +936,260 @@ function parseCaseBlock(block: string, slNo: number): ParsedCase | null {
   };
 }
 
+// ── ANNEXURE-II Enrichment (structured rows) ────────────────────────────────
+
+/**
+ * Enrich parsed cases (from Annexure I) with detailed data from ANNEXURE-II
+ * using the structured table rows extracted by mammoth HTML parsing.
+ *
+ * The ANNEXURE-II header is detected dynamically by finding a row that contains
+ * "BRIEF FACTS" (or "Brief Facts") in one of its cells.  Column positions are
+ * mapped from the header text so the parser is resilient to column reordering or
+ * extra/missing columns across different DSR templates.
+ *
+ * Matching ANNEXURE-II rows to ANNEXURE-I cases is done by PS name (normalized)
+ * plus optionally nature-of-case, since Cr.No is often a placeholder (___/2026).
+ */
+function enrichFromAnnexureIIRows(rows: string[][], cases: ParsedCase[]): void {
+  if (!rows.length || !cases.length) return;
+
+  // ── 1. Find the ANNEXURE-II header row ──
+  // Look for rows containing "brief facts", "brief description", or structural
+  // ANNEXURE-II keywords (accused details + property seized + zone/PS)
+  let annHeaderIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const joined = rows[i].map(c => c.toLowerCase()).join('|');
+    // Primary: "brief facts" or "brief description"
+    if (joined.includes('brief') && (joined.includes('fact') || joined.includes('description'))) {
+      annHeaderIdx = i;
+      break;
+    }
+    // Fallback: structural detection — must have accused details + property/seized + zone/PS + serial
+    if (/accused.*detail|detail.*accused/i.test(joined) &&
+        /property|seiz/i.test(joined) &&
+        /zone|p\.?\s*s/i.test(joined) &&
+        /s[il]\.?\s*n|serial/i.test(joined)) {
+      annHeaderIdx = i;
+      break;
+    }
+  }
+  if (annHeaderIdx < 0) {
+    console.log('[PARSER-ANNII-ROWS] No ANNEXURE-II header with "BRIEF FACTS" found');
+    return;
+  }
+
+  const header = rows[annHeaderIdx];
+  console.log('[PARSER-ANNII-ROWS] Header at row', annHeaderIdx, 'cols:', header.length,
+    header.map(c => c.slice(0, 30)));
+
+  // ── 2. Map column indices dynamically from header text ──
+  const colMap: Record<string, number> = {};
+  for (let ci = 0; ci < header.length; ci++) {
+    const h = header[ci].toLowerCase().replace(/[\r\n]+/g, ' ');
+    if (/s[il]\.?\s*no/i.test(h)) colMap['slNo'] = ci;
+    else if (/zone/i.test(h) && !colMap['zone']) colMap['zone'] = ci;
+    else if (/vice/i.test(h)) colMap['vice'] = ci;
+    else if (/action/i.test(h)) colMap['action'] = ci;
+    else if (/nature/i.test(h)) colMap['nature'] = ci;
+    else if (/p\.?\s*s\.?.*cr/i.test(h) || /cr.*no/i.test(h)) colMap['crDetails'] = ci;
+    else if (/detail.*accused/i.test(h) || /accused.*detail/i.test(h)) colMap['accusedDetails'] = ci;
+    else if (/brief/i.test(h)) colMap['briefFacts'] = ci;
+    else if (/absconding/i.test(h)) colMap['absconding'] = ci;
+    else if (/property.*seize/i.test(h) || /seize.*property/i.test(h)) colMap['propertySeized'] = ci;
+    else if (/worth/i.test(h)) colMap['worth'] = ci;
+    else if (/no\.?\s*of\s*case/i.test(h)) colMap['numCases'] = ci;
+    else if (/\bI\.?\s*R\.?\b/i.test(h)) colMap['ir'] = ci;
+  }
+
+  console.log('[PARSER-ANNII-ROWS] Column map:', colMap);
+
+  const briefCol = colMap['briefFacts'];
+  const accusedCol = colMap['accusedDetails'];
+  const crCol = colMap['crDetails'];
+  const zoneCol = colMap['zone'];
+  const propCol = colMap['propertySeized'];
+  const worthCol = colMap['worth'];
+  const absCol = colMap['absconding'];
+
+  if (briefCol === undefined) {
+    console.log('[PARSER-ANNII-ROWS] Could not map BRIEF FACTS column');
+    return;
+  }
+
+  // ── 3. Iterate data rows ──
+  const expectedCols = header.length;
+  let enriched = 0;
+
+  for (let i = annHeaderIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    // Skip rows with very different column count (different table)
+    if (Math.abs(row.length - expectedCols) > 3) continue;
+    // Stop at "Total" summary row — check first cell only, not entire row
+    if (/^\s*total\b/i.test(row[0] || '')) break;
+    // Skip re-encountering the header row itself
+    const joined = row.map(c => c.toLowerCase()).join('|');
+    if (joined.includes('brief') && joined.includes('fact') && /s[il]\.?\s*n/i.test(joined)) continue;
+    // Stop at a different table header (e.g. ANNEXURE-I header appearing after ANNEXURE-II)
+    const headerLikeCells = row.filter(c => {
+      const t = c.trim().toLowerCase().replace(/[\r\n]+/g, ' ');
+      return t.length > 2 && t.length < 60 &&
+        /^(s[il]\.?\s*n|zone|nature|accused|action|seiz|abscon|no\.?\s*of|worth|property|crime|vice|i\.?\s*r\.?)/i.test(t);
+    });
+    if (headerLikeCells.length >= 4) break;
+
+    // Skip placeholder/empty rows
+    const dataCells = row.slice(1);
+    const allPlaceholder = dataCells.every(c => !c.trim() || c.trim() === '--');
+    if (allPlaceholder) continue;
+
+    // ── Extract candidate PS names from this ANNEXURE-II row ──
+    const candidatePS: string[] = [];
+
+    // Method A: First line of crDetails column (e.g. "Mirchowk\nCr.No. ___/2026 ...")
+    if (crCol !== undefined && row[crCol]) {
+      const firstLine = (row[crCol].split('\n')[0] || '').replace(/\s*PS\s*$/i, '').trim();
+      if (firstLine.length > 1 && firstLine.length < 50 && !/Cr\.?\s*No/i.test(firstLine)) {
+        candidatePS.push(firstLine);
+      }
+    }
+    // Method B: Zone column may contain PS name (e.g. "Charminar\nZone\nChaderghat")
+    if (zoneCol !== undefined && row[zoneCol]) {
+      const lines = row[zoneCol].split('\n').map(l => l.trim()).filter(Boolean);
+      // PS name is typically the line that is NOT a zone name and NOT "Zone"
+      for (const line of lines) {
+        if (/^zone$/i.test(line)) continue;
+        if (ZONE_NAMES.some(z => normCompare(line) === normCompare(z))) continue;
+        if (/sector/i.test(line)) continue;
+        if (line.length > 1 && line.length < 50) {
+          if (!candidatePS.some(p => normCompare(p) === normCompare(line))) {
+            candidatePS.push(line);
+          }
+          break;
+        }
+      }
+    }
+
+    if (!candidatePS.length) {
+      console.log(`[PARSER-ANNII-ROWS] Row ${i}: could not extract PS name, skipping`);
+      continue;
+    }
+
+    // ── Extract nature of case for disambiguation ──
+    let annNature = '';
+    if (colMap['nature'] !== undefined && row[colMap['nature']]) {
+      annNature = norm(row[colMap['nature']]);
+    }
+
+    // ── Extract Cr.No from ANNEXURE-II for precise matching ──
+    let annCrNo = '';
+    if (crCol !== undefined && row[crCol]) {
+      const crMatch = row[crCol].match(/Cr(?:ime)?\.?\s*No\.?\s*[:.\-]?\s*([\d_\s/]+\/\s*\d{2,4})/i);
+      if (crMatch) annCrNo = crMatch[1].replace(/\s/g, '').replace(/_+/g, '_').trim();
+    }
+
+    // ── Match to an ANNEXURE-I parsed case ──
+    let matched: ParsedCase | undefined;
+
+    // Highest priority: Cr.No match (most precise)
+    if (annCrNo && !/^_+\/?/.test(annCrNo)) {
+      matched = cases.find(c =>
+        !c.briefFacts && c.crNo &&
+        c.crNo.replace(/\s/g, '') === annCrNo
+      );
+    }
+
+    if (!matched) {
+      for (const annPS of candidatePS) {
+        if (matched) break;
+        const normAnnPS = normCompare(annPS);
+
+        // First try: PS name + nature of case
+        if (annNature) {
+          matched = cases.find(c =>
+            !c.briefFacts &&
+            normCompare(c.policeStation) === normAnnPS &&
+            normCompare(c.natureOfCase) === normCompare(annNature)
+          );
+        }
+        // Second try: PS name only (first un-enriched case with same PS)
+        if (!matched) {
+          matched = cases.find(c =>
+            !c.briefFacts &&
+            normCompare(c.policeStation) === normAnnPS
+          );
+        }
+        // Third try: fuzzy PS match (substring)
+        if (!matched) {
+          matched = cases.find(c =>
+            !c.briefFacts &&
+            (normCompare(c.policeStation).includes(normAnnPS) || normAnnPS.includes(normCompare(c.policeStation)))
+          );
+        }
+      }
+    }
+
+    if (!matched) {
+      console.log(`[PARSER-ANNII-ROWS] Row ${i}: PS candidates [${candidatePS.join(', ')}] not matched to any case`);
+      continue;
+    }
+
+    // ── Extract and assign fields ──
+    // Brief Facts — take the full cell content directly
+    if (briefCol !== undefined && row[briefCol]) {
+      const facts = norm(row[briefCol]);
+      if (facts && facts !== '--') {
+        matched.briefFacts = facts;
+      }
+    }
+
+    // Detailed accused
+    if (accusedCol !== undefined && row[accusedCol]) {
+      const accused = norm(row[accusedCol]);
+      if (accused && accused !== '--' && accused.length > matched.accusedDetails.length) {
+        matched.accusedParticulars = accused;
+        matched.accusedDetails = accused;
+      }
+    }
+
+    // Enriched PS + Cr details
+    if (crCol !== undefined && row[crCol]) {
+      const crDetails = norm(row[crCol]);
+      if (crDetails && crDetails.length > (matched.psWithCrDetails || '').length) {
+        matched.psWithCrDetails = crDetails;
+      }
+    }
+
+    // Property seized
+    if (propCol !== undefined && row[propCol]) {
+      const prop = norm(row[propCol]);
+      if (prop && prop !== '--') {
+        matched.seizedProperty = prop;
+      }
+    }
+
+    // Worth
+    if (worthCol !== undefined && row[worthCol]) {
+      const worth = norm(row[worthCol]);
+      if (worth && worth !== '--') {
+        matched.seizedWorth = worth;
+      }
+    }
+
+    // Absconding accused (update if present)
+    if (absCol !== undefined && row[absCol]) {
+      const abs = norm(row[absCol]);
+      if (abs && abs !== '--') {
+        matched.abscondingAccused = parseInt(abs) || 0;
+      }
+    }
+
+    enriched++;
+    console.log(`[PARSER-ANNII-ROWS] Row ${i}: enriched case PS="${matched.policeStation}" with briefFacts (${(matched.briefFacts || '').length} chars)`);
+  }
+
+  console.log(`[PARSER-ANNII-ROWS] Enriched ${enriched}/${cases.length} cases`);
+}
+
 // ── ANNEXURE-II Enrichment ───────────────────────────────────────────────────
 
 /**
@@ -882,16 +1217,27 @@ function enrichFromAnnexureII(rawText: string, cases: ParsedCase[]): void {
   console.log('[PARSER] AnnII first 500 chars:', annBody.slice(0, 500));
 
   for (const c of cases) {
-    if (!c.crNo) continue;
-
     // Build flexible regex for this case's Cr.No (allow whitespace around /)
-    const crEsc = c.crNo
-      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      .replace(/\//g, '\\s*/\\s*');
-    const crRe = new RegExp('Cr\\.?\\s*No\\.?\\s*[:.]?\\s*' + crEsc, 'i');
-    const crM = crRe.exec(annBody);
+    const isPlaceholderCrNo = !c.crNo || /^_+\/?\d*$/.test(c.crNo) || c.crNo === '_/2026';
+
+    let crM: RegExpExecArray | null = null;
+    if (!isPlaceholderCrNo) {
+      const crEsc = c.crNo
+        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\//g, '\\s*/\\s*');
+      const crRe = new RegExp('Cr\\.?\\s*No\\.?\\s*[:.]?\\s*' + crEsc, 'i');
+      crM = crRe.exec(annBody);
+    }
+
+    // Fallback: match by PS name when Cr.No is a placeholder
+    if (!crM && c.policeStation) {
+      const psEsc = c.policeStation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
+      const psRe = new RegExp(psEsc + '\\s*(?:PS)?\\s*\\n\\s*Cr\\.?\\s*No\\.?', 'i');
+      crM = psRe.exec(annBody);
+    }
+
     if (!crM) {
-      console.log(`[PARSER] AnnII: crNo ${c.crNo} not found`);
+      console.log(`[PARSER] AnnII: crNo ${c.crNo} / PS ${c.policeStation} not found`);
       continue;
     }
 

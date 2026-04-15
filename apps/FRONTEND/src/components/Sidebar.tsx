@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { getMemos } from '../services/endpoints';
 import {
@@ -11,16 +11,17 @@ import {
   ClipboardList,
   Eye,
   ShieldCheck,
+  UserSearch,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, color: 'from-blue-500 to-blue-600', text: 'text-blue-600' },
   { to: '/dsr', label: 'DSR & Memo Generation', icon: FileText, color: 'from-cyan-500 to-cyan-600', text: 'text-cyan-600' },
+  { to: '/memos', label: 'Memos', icon: ShieldCheck, color: 'from-teal-500 to-teal-600', text: 'text-teal-600' },
   { to: '/review', label: 'To be Reviewed by CP Sir', icon: Eye, color: 'from-indigo-500 to-indigo-600', text: 'text-indigo-600' },
-  { to: '/compliance', label: 'Memos & Compliance', icon: ShieldCheck, color: 'from-teal-500 to-teal-600', text: 'text-teal-600' },
-  { to: '/reports', label: 'Reports', icon: ClipboardList, color: 'from-orange-500 to-orange-600', text: 'text-orange-600' },
+  { to: '/officer-tracker', label: 'Memo Compliance', icon: UserSearch, color: 'from-rose-500 to-rose-600', text: 'text-rose-600' },
+  //{ to: '/reports', label: 'Reports', icon: ClipboardList, color: 'from-orange-500 to-orange-600', text: 'text-orange-600' },
   { to: '/mapping', label: 'Mapping', icon: Map, color: 'from-emerald-500 to-emerald-600', text: 'text-emerald-600' },
-  { to: '/actions', label: 'Warnings', icon: Gavel, color: 'from-amber-500 to-amber-600', text: 'text-amber-600' },
   { to: '/officers', label: 'Officers', icon: Users, color: 'from-violet-500 to-violet-600', text: 'text-violet-600' },
 ];
 
@@ -30,6 +31,8 @@ const SPRING = 'cubic-bezier(.34,1.56,.64,1)';
 
 const Dock: React.FC = () => {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   const { data: pendingData } = useQuery({
     queryKey: ['memos-pending-count'],
@@ -68,16 +71,15 @@ const Dock: React.FC = () => {
         {navItems.map(({ to, label, icon: Icon, color, text }, index) => {
           const scale = getScale(index);
           const ty = getTranslateY(index);
+          const isActive = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);
           return (
-            <NavLink
+            <div
               key={to}
-              to={to}
-              end={to === '/'}
+              onClick={() => navigate(to)}
               onMouseEnter={() => setHoveredIndex(index)}
-              className="group flex flex-col items-center mx-0.5"
+              className="group flex flex-col items-center mx-0.5 cursor-pointer"
               style={{ width: 66 }}
             >
-              {({ isActive }) => (
                 <div
                   className="flex flex-col items-center"
                   style={{
@@ -125,8 +127,7 @@ const Dock: React.FC = () => {
                     <span className="w-1.5 h-1.5 rounded-full bg-current" style={{ color: 'inherit' }} />
                   )}
                 </div>
-              )}
-            </NavLink>
+            </div>
           );
         })}
       </nav>

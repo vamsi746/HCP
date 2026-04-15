@@ -51,7 +51,9 @@ const MemoEditorPage: React.FC = () => {
       toast.success('Memo submitted for CP Sir review');
       queryClient.invalidateQueries({ queryKey: ['memo', id] });
       queryClient.invalidateQueries({ queryKey: ['memos'] });
-      navigate('/compliance');
+      queryClient.invalidateQueries({ queryKey: ['memos-pending-count'] });
+      queryClient.invalidateQueries({ queryKey: ['memos-review-counts'] });
+      navigate('/memos');
     },
     onError: () => toast.error('Failed to submit'),
   });
