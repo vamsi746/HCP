@@ -54,13 +54,18 @@ router.post('/login', authLimiter, validate(loginSchema), async (req: Request, r
 
     const tokens = generateTokens(user);
 
+    const isProduction = config.env === 'production';
+    const cookieOpts = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
+    };
+
     res.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true, secure: config.env === 'production', sameSite: 'lax',
-      maxAge: 8 * 60 * 60 * 1000,
+      ...cookieOpts, maxAge: 8 * 60 * 60 * 1000,
     });
     res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true, secure: config.env === 'production', sameSite: 'lax',
-      path: '/api/auth', maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...cookieOpts, path: '/api/auth', maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     await createAuditLog({
@@ -77,8 +82,14 @@ router.post('/login', authLimiter, validate(loginSchema), async (req: Request, r
 
 // POST /api/auth/logout
 router.post('/logout', (_req: Request, res: Response) => {
-  res.clearCookie('accessToken');
-  res.clearCookie('refreshToken', { path: '/api/auth' });
+  const isProduction = config.env === 'production';
+  const cookieOpts = {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? 'none' as const : 'lax' as const,
+  };
+  res.clearCookie('accessToken', cookieOpts);
+  res.clearCookie('refreshToken', { ...cookieOpts, path: '/api/auth' });
   res.json({ data: { message: 'Logged out' } });
 });
 
@@ -98,13 +109,18 @@ router.post('/refresh', async (req: Request, res: Response) => {
     };
     const tokens = generateTokens(user);
 
+    const isProduction = config.env === 'production';
+    const cookieOpts = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
+    };
+
     res.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true, secure: config.env === 'production', sameSite: 'lax',
-      maxAge: 8 * 60 * 60 * 1000,
+      ...cookieOpts, maxAge: 8 * 60 * 60 * 1000,
     });
     res.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true, secure: config.env === 'production', sameSite: 'lax',
-      path: '/api/auth', maxAge: 7 * 24 * 60 * 60 * 1000,
+      ...cookieOpts, path: '/api/auth', maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     res.json({ data: { user } });
