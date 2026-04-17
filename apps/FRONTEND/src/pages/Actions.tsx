@@ -79,7 +79,7 @@ const Actions: React.FC = () => {
 
   return (
     <div>
-      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
         <h1 className="text-sm font-bold text-white uppercase tracking-wider">Warnings & Disciplinary Actions</h1>
         <p className="text-[11px] text-blue-200 mt-1">
           Auto-generated warnings & suspension orders for officers who failed to act
@@ -118,7 +118,7 @@ const Actions: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4">
         {['', 'WARNING', 'SUSPENSION', 'SHOW_CAUSE', 'COUNSELING'].map((t) => (
           <button
             key={t}
@@ -134,7 +134,8 @@ const Actions: React.FC = () => {
 
       {/* Table */}
       <div className="border border-slate-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-gradient-to-r from-[#1a2a4a] to-[#2d4a6f] text-white">
             <tr className="text-left">
               <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Date</th>
@@ -200,6 +201,7 @@ const Actions: React.FC = () => {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {pagination.total > 20 && (
@@ -213,7 +215,7 @@ const Actions: React.FC = () => {
       {/* Edit Action Modal */}
       {editItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-md overflow-hidden">
+          <div className="bg-white shadow-xl w-[95vw] max-w-md overflow-hidden">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-4 flex items-center justify-between">
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">Edit Action</h2>
               <button onClick={() => setEditItem(null)} className="text-blue-200 hover:text-white"><X size={20} /></button>
@@ -249,7 +251,7 @@ const Actions: React.FC = () => {
       {/* Delete Confirmation */}
       {deleteItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-sm overflow-hidden">
+          <div className="bg-white shadow-xl w-[95vw] max-w-sm overflow-hidden">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-4">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider text-center">Delete Action?</h3>
             </div>

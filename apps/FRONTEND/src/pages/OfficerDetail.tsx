@@ -30,7 +30,7 @@ const OfficerDetail: React.FC = () => {
 
   return (
     <div>
-      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
         <h1 className="text-sm font-bold text-white uppercase tracking-wider">Officer Details</h1>
         <p className="text-[11px] text-blue-200 mt-0.5">{data.name} — {data.rank}</p>
       </div>
@@ -44,7 +44,7 @@ const OfficerDetail: React.FC = () => {
             <StatusBadge status={data.isActive ? 'ACTIVE' : 'INACTIVE'} />
           </div>
         </div>
-        <dl className="grid grid-cols-2 gap-4 p-5">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-5">
           {fields.map((f) => (
             <div key={f.label}>
               <dt className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{f.label}</dt>

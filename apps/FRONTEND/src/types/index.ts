@@ -282,6 +282,13 @@ export interface Memo {
     dor: string;
     warningGenerated: boolean;
   };
+  // Compliance tracking
+  complianceStatus?: 'AWAITING_REPLY' | 'COMPLIED';
+  complianceRemarks?: string;
+  complianceDocumentPath?: string;
+  complianceDocumentName?: string;
+  compliedAt?: string;
+  compliedBy?: string | { _id: string; name: string; badgeNumber: string; rank: string };
 }
 
 export interface PaginatedResponse<T> {

@@ -18,9 +18,9 @@ const Header: React.FC = () => {
   };
 
   return (
-    <header className="bg-primary-500 text-white h-20 flex items-center justify-between px-4 shadow-lg">
-      <div className="flex items-center gap-3">
-        <img src={policeLogo} alt="Hyderabad City Police" className="h-12 w-12 rounded-full object-cover" />
+    <header className="bg-primary-500 text-white h-14 sm:h-16 md:h-20 flex items-center justify-between px-3 sm:px-4 shadow-lg">
+      <div className="flex items-center gap-2 sm:gap-3">
+        <img src={policeLogo} alt="Hyderabad City Police" className="h-8 w-8 sm:h-10 sm:w-10 md:h-12 md:w-12 rounded-full object-cover" />
         <span className="text-lg font-bold tracking-wide hidden sm:inline">SHIELD — HCP</span>
       </div>
       <div className="flex items-center gap-5">

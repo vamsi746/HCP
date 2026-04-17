@@ -65,12 +65,12 @@ export const generateTokens = (user: AuthUser) => {
   const accessToken = jwt.sign(
     { id: user.id, badgeNumber: user.badgeNumber, name: user.name, rank: user.rank, email: user.email },
     config.jwt.secret,
-    { expiresIn: config.jwt.expiresIn as string }
+    { expiresIn: config.jwt.expiresIn } as jwt.SignOptions
   );
   const refreshToken = jwt.sign(
     { id: user.id },
     config.jwt.refreshSecret,
-    { expiresIn: config.jwt.refreshExpiresIn as string }
+    { expiresIn: config.jwt.refreshExpiresIn } as jwt.SignOptions
   );
   return { accessToken, refreshToken };
 };

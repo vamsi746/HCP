@@ -1,16 +1,18 @@
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { useParams, useNavigate, useBeforeUnload, UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useBeforeUnload, UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMemo, updateMemo, submitMemoForReview } from '../../services/endpoints';
+import { getMemo, updateMemo, submitMemoForReview, downloadComplianceDocument } from '../../services/endpoints';
 import MemoEditor from '../../components/MemoEditor';
-import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2, Ban } from 'lucide-react';
+import { ArrowLeft, Save, Send, CheckCircle2, Clock, FileText, Loader2, Ban, Download, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Memo } from '../../types';
 import MemoPrintButton from '../../components/MemoPrintButton';
+import { format } from 'date-fns';
 
 const MemoEditorPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [content, setContent] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
@@ -78,7 +80,7 @@ const MemoEditorPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['memos'] });
       queryClient.invalidateQueries({ queryKey: ['memos-pending-count'] });
       queryClient.invalidateQueries({ queryKey: ['memos-review-counts'] });
-      navigate('/memos');
+      navigate(-1);
     },
     onError: () => toast.error('Failed to submit'),
   });
@@ -142,13 +144,17 @@ const MemoEditorPage: React.FC = () => {
     proceed?.();
   };
 
+  const navigateBack = () => {
+    navigate(-1);
+  };
+
   const handleBack = () => {
     if (shouldBlockNavigation) {
-      setPendingNavigation(() => () => navigate(-1));
+      setPendingNavigation(() => navigateBack);
       setLeaveDialogOpen(true);
       return;
     }
-    navigate(-1);
+    navigateBack();
   };
 
   if (isLoading) {
@@ -180,7 +186,7 @@ const MemoEditorPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-100">
       {/* Header bar — govt theme */}
-      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-3.5 flex items-center justify-between border-l-4 border-amber-500 -mx-6 -mt-6">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-3.5 flex items-center justify-between border-l-4 border-amber-500 -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6">
         <div className="flex items-center gap-3">
           <button onClick={handleBack} className="p-1.5 hover:bg-white/10 text-blue-200 hover:text-white transition">
             <ArrowLeft size={18} />
@@ -199,7 +205,7 @@ const MemoEditorPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center flex-wrap gap-2">
           <MemoPrintButton
             content={content}
             title={`Memo - ${data.policeStation} PS - Cr.No. ${data.crimeNo}`}
@@ -245,17 +251,70 @@ const MemoEditorPage: React.FC = () => {
           {content ? (
             <MemoEditor content={content} onUpdate={handleContentUpdate} editable={editable} />
           ) : (
-            <div className="border border-gray-200 bg-gray-100 flex items-center justify-center" style={{ minHeight: 600 }}>
+            <div className="border border-gray-200 bg-gray-100 flex items-center justify-center" style={{ minHeight: 'min(600px, 70vh)' }}>
               <Loader2 size={24} className="animate-spin text-gray-400" />
             </div>
           )}
         </div>
       </div>
 
+      {/* Compliance section — shown when memo has compliance data */}
+      {data.complianceStatus && (
+        <div className="mt-4 mx-0 mb-4 bg-white border border-slate-200 shadow-md">
+          <div className={`px-4 py-2 flex items-center justify-between ${data.complianceStatus === 'COMPLIED' ? 'bg-emerald-600' : 'bg-amber-500'}`}>
+            <div className="flex items-center gap-2">
+              {data.complianceStatus === 'COMPLIED' ? <CheckCircle2 size={14} className="text-white" /> : <Clock size={14} className="text-white" />}
+              <p className="text-[11px] font-bold text-white uppercase tracking-wider">
+                {data.complianceStatus === 'COMPLIED' ? 'Compliance Received' : 'Awaiting Compliance'}
+              </p>
+            </div>
+            {data.compliedAt && (
+              <span className="text-[10px] text-white/80 font-medium">
+                on {format(new Date(data.compliedAt), 'dd MMM yyyy')}
+              </span>
+            )}
+          </div>
+          <div className="p-4 space-y-3">
+            {data.complianceRemarks && (
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Remarks</p>
+                <p className="text-[12px] text-slate-700 leading-relaxed">{data.complianceRemarks}</p>
+              </div>
+            )}
+            {data.complianceDocumentName && (
+              <div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Compliance Document</p>
+                <div className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                  <FileText size={18} className="text-slate-400 flex-shrink-0" />
+                  <span className="text-[12px] font-medium text-slate-700 flex-1 truncate">{data.complianceDocumentName}</span>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await downloadComplianceDocument(data._id);
+                        const url = URL.createObjectURL(res.data);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = data.complianceDocumentName || 'compliance-document';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      } catch { toast.error('Failed to download'); }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#003366] text-white text-[10px] font-bold uppercase tracking-wider hover:bg-[#004480] rounded transition"
+                  >
+                    <Download size={12} />
+                    Download
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Leave confirmation dialog */}
       {leaveDialogOpen && (
         <div className="fixed inset-0 bg-black/40 z-[80] flex items-center justify-center p-4" onClick={stayOnPage}>
-          <div className="w-full max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="w-[95vw] max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
             <div className="bg-[#003366] px-5 py-3 rounded-t-sm">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">Unsaved Changes</h3>
             </div>

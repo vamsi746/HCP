@@ -116,7 +116,7 @@ const Cases: React.FC = () => {
 
   return (
     <div>
-      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-sm font-bold text-white uppercase tracking-wider">Incidents & Cases</h1>
@@ -134,7 +134,7 @@ const Cases: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 sm:gap-3 mb-4">
         {(['all', 'taskforce', 'missed'] as const).map((f) => (
           <button
             key={f}
@@ -152,7 +152,8 @@ const Cases: React.FC = () => {
 
       {/* Table */}
       <div className="border border-slate-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-gradient-to-r from-[#1a2a4a] to-[#2d4a6f] border-b">
             <tr className="text-left text-white">
               <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Date</th>
@@ -215,6 +216,7 @@ const Cases: React.FC = () => {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {pagination.total > 20 && (
@@ -228,7 +230,7 @@ const Cases: React.FC = () => {
       {/* Log Incident Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-lg">
+          <div className="bg-white shadow-xl w-[95vw] max-w-lg">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4 flex items-center justify-between">
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">Log Task Force Incident</h2>
               <button onClick={() => setShowModal(false)} className="text-blue-200 hover:text-white">
@@ -284,7 +286,7 @@ const Cases: React.FC = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">FIR Number</label>
                   <input
@@ -349,7 +351,7 @@ const Cases: React.FC = () => {
       {/* Edit Case Modal */}
       {editItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-lg">
+          <div className="bg-white shadow-xl w-[95vw] max-w-lg">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4 flex items-center justify-between">
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">Edit Case</h2>
               <button onClick={() => setEditItem(null)} className="text-blue-200 hover:text-white"><X size={20} /></button>
@@ -374,7 +376,7 @@ const Cases: React.FC = () => {
                   {HANDLER_TYPES.map((ht) => <option key={ht} value={ht}>{ht.replace(/_/g, ' ')}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">FIR Number</label>
                   <input type="text" value={editForm.firNumber} onChange={(e) => setEditForm({ ...editForm, firNumber: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm" />
@@ -384,7 +386,7 @@ const Cases: React.FC = () => {
                   <input type="text" value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm" />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Task Force Unit</label>
                   <input type="text" value={editForm.taskForceUnit} onChange={(e) => setEditForm({ ...editForm, taskForceUnit: e.target.value })} className="w-full border border-slate-300 px-3 py-2 text-sm" />
@@ -415,7 +417,7 @@ const Cases: React.FC = () => {
       {/* Delete Confirmation */}
       {deleteItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-sm">
+          <div className="bg-white shadow-xl w-[95vw] max-w-sm">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">Delete Case?</h3>
             </div>

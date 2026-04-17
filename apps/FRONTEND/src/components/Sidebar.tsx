@@ -73,9 +73,9 @@ const Dock: React.FC = () => {
   };
 
   return (
-    <div className="shrink-0 flex justify-center py-1.5 bg-gray-50">
+    <div className="shrink-0 flex justify-center py-1 sm:py-1.5 bg-gray-50 overflow-x-auto">
       <nav
-        className="flex items-end px-3 py-1.5 bg-white/80 backdrop-blur-2xl border border-gray-200/50 rounded-2xl shadow-lg shadow-black/5"
+        className="flex items-end px-2 sm:px-3 py-1 sm:py-1.5 bg-white/80 backdrop-blur-2xl border border-gray-200/50 rounded-2xl shadow-lg shadow-black/5 min-w-0"
         onMouseLeave={() => setHoveredIndex(null)}
       >
         {visibleItems.map(({ to, label, icon: Icon, color, text }, index) => {
@@ -87,8 +87,8 @@ const Dock: React.FC = () => {
               key={to}
               onClick={() => navigate(to)}
               onMouseEnter={() => setHoveredIndex(index)}
-              className="group flex flex-col items-center mx-0.5 cursor-pointer"
-              style={{ width: 66 }}
+              className="group flex flex-col items-center mx-0.5 cursor-pointer flex-shrink-0"
+              style={{ width: 'clamp(52px, 10vw, 66px)' }}
             >
                 <div
                   className="flex flex-col items-center"

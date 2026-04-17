@@ -3,6 +3,11 @@ import mongoose from 'mongoose';
 import { Memo, MemoStatus, DSR, Officer, PoliceStation, Zone, Division, Circle, SectorOfficer } from '../models';
 import { Sector } from '../models/Sector';
 import { authenticate } from '../middleware/auth';
+import { upload } from '../middleware/upload';
+import path from 'path';
+import fs from 'fs/promises';
+import fsSync from 'fs';
+import { convertDocToDocx } from '../services/dsr-parser';
 
 const router = Router();
 
@@ -349,9 +354,19 @@ router.get('/case-officers/:psId', authenticate, async (req: Request, res: Respo
 
 router.get('/', authenticate, async (req: Request, res: Response) => {
   try {
-    const { status, dsrId, page = '1', limit = '20', zoneId, psId, dateFrom, dateTo, sector } = req.query;
+    const { status, dsrId, page = '1', limit = '20', zoneId, psId, dateFrom, dateTo, sector, complianceView, complianceStatus: csFilter } = req.query;
     const filter: any = {};
-    if (status) {
+    if (complianceView) {
+      filter.status = { $in: ['APPROVED', 'SENT'] };
+      if (csFilter === 'AWAITING_REPLY') {
+        filter.$or = [
+          { complianceStatus: 'AWAITING_REPLY' },
+          { complianceStatus: { $exists: false } },
+        ];
+      } else if (csFilter === 'COMPLIED') {
+        filter.complianceStatus = 'COMPLIED';
+      }
+    } else if (status) {
       const statuses = (status as string).split(',');
       filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
     }
@@ -395,6 +410,7 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
         .populate('generatedBy', 'name badgeNumber rank')
         .populate('reviewedBy', 'name badgeNumber rank')
         .populate('recipientId', 'name badgeNumber rank phone')
+        .populate('compliedBy', 'name badgeNumber rank')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit as string))
@@ -497,6 +513,21 @@ router.get('/counts', authenticate, async (req: Request, res: Response) => {
     for (const r of results) {
       counts[r._id] = r.count;
     }
+
+    // Compliance tab counts
+    const compFilter = { ...filter, status: { $in: ['APPROVED', 'SENT'] } };
+    const compPipeline = [
+      { $match: compFilter },
+      { $group: { _id: { $ifNull: ['$complianceStatus', 'AWAITING_REPLY'] }, count: { $sum: 1 } } },
+    ];
+    const compResults = await Memo.aggregate(compPipeline);
+    let compTotal = 0;
+    for (const r of compResults) {
+      counts[`compliance_${r._id}`] = r.count;
+      compTotal += r.count;
+    }
+    counts['__COMPLIANCE__'] = compTotal;
+
     res.json({ data: counts });
   } catch {
     res.status(500).json({ error: 'Failed to fetch memo counts' });
@@ -654,10 +685,191 @@ router.put('/:id/approve', authenticate, async (req: Request, res: Response) => 
     memo.status = MemoStatus.APPROVED;
     memo.approvedBy = req.user!.id as any;
     memo.approvedAt = new Date();
+    (memo as any).complianceStatus = 'AWAITING_REPLY';
     await memo.save();
     res.json({ data: memo });
   } catch {
     res.status(500).json({ error: 'Failed to approve memo' });
+  }
+});
+
+// ── PUT /api/memos/:id/comply — Record compliance response ──────────────────
+
+router.put('/:id/comply', authenticate, upload.single('complianceDocument'), async (req: Request, res: Response) => {
+  try {
+    const memo = await Memo.findById(req.params.id);
+    if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
+    if (!['APPROVED', 'SENT'].includes(memo.status as string)) {
+      res.status(400).json({ error: 'Only approved or sent memos can be marked as complied' });
+      return;
+    }
+    if ((memo as any).complianceStatus === 'COMPLIED') {
+      res.status(400).json({ error: 'Memo is already marked as complied' });
+      return;
+    }
+    if (!req.body.complianceRemarks && !req.file) {
+      res.status(400).json({ error: 'Please provide compliance remarks or upload a document' });
+      return;
+    }
+
+    (memo as any).complianceStatus = 'COMPLIED';
+    (memo as any).complianceRemarks = req.body.complianceRemarks || '';
+    (memo as any).compliedAt = new Date();
+    (memo as any).compliedBy = req.user!.id;
+
+    if (req.file) {
+      let buffer = req.file.buffer;
+      let originalName = req.file.originalname;
+      const ext = path.extname(originalName).toLowerCase();
+      const dir = path.join(__dirname, '../../uploads/compliance');
+      await fs.mkdir(dir, { recursive: true });
+
+      // Convert .doc to .docx at upload time for fast preview
+      if (ext === '.doc') {
+        try {
+          const docxBuffer = await convertDocToDocx(buffer);
+          if (docxBuffer) {
+            buffer = docxBuffer;
+            originalName = originalName.replace(/\.doc$/i, '.docx');
+          }
+        } catch (convErr: any) {
+          console.log('[MEMO] .doc conversion failed, saving original:', convErr.message);
+        }
+      }
+
+      const saveExt = path.extname(originalName).toLowerCase();
+      const filename = `compliance_${memo._id}_${Date.now()}${saveExt}`;
+      await fs.writeFile(path.join(dir, filename), buffer);
+      (memo as any).complianceDocumentPath = `uploads/compliance/${filename}`;
+      (memo as any).complianceDocumentName = originalName;
+    }
+
+    await memo.save();
+    res.json({ data: memo });
+  } catch (err: any) {
+    console.error('[MEMO] Comply error:', err.message);
+    res.status(500).json({ error: 'Failed to record compliance' });
+  }
+});
+
+// ── PATCH /api/memos/:id/compliance — Update compliance remarks / replace document ──
+
+router.patch('/:id/compliance', authenticate, upload.single('complianceDocument'), async (req: Request, res: Response) => {
+  try {
+    const memo = await Memo.findById(req.params.id);
+    if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
+    if ((memo as any).complianceStatus !== 'COMPLIED') {
+      res.status(400).json({ error: 'Memo is not yet marked as complied' });
+      return;
+    }
+
+    if (req.body.complianceRemarks !== undefined) {
+      (memo as any).complianceRemarks = req.body.complianceRemarks;
+    }
+
+    if (req.file) {
+      // Delete old file if exists
+      if ((memo as any).complianceDocumentPath) {
+        const oldPath = path.join(__dirname, '../..', (memo as any).complianceDocumentPath);
+        await fs.unlink(oldPath).catch(() => {});
+      }
+      let buffer = req.file.buffer;
+      let originalName = req.file.originalname;
+      const ext = path.extname(originalName).toLowerCase();
+      const dir = path.join(__dirname, '../../uploads/compliance');
+      await fs.mkdir(dir, { recursive: true });
+
+      // Convert .doc to .docx at upload time for fast preview
+      if (ext === '.doc') {
+        try {
+          const docxBuffer = await convertDocToDocx(buffer);
+          if (docxBuffer) {
+            buffer = docxBuffer;
+            originalName = originalName.replace(/\.doc$/i, '.docx');
+          }
+        } catch (convErr: any) {
+          console.log('[MEMO] .doc conversion failed, saving original:', convErr.message);
+        }
+      }
+
+      const saveExt = path.extname(originalName).toLowerCase();
+      const filename = `compliance_${memo._id}_${Date.now()}${saveExt}`;
+      await fs.writeFile(path.join(dir, filename), buffer);
+      (memo as any).complianceDocumentPath = `uploads/compliance/${filename}`;
+      (memo as any).complianceDocumentName = originalName;
+    }
+
+    await memo.save();
+    res.json({ data: memo });
+  } catch (err: any) {
+    console.error('[MEMO] Update compliance error:', err.message);
+    res.status(500).json({ error: 'Failed to update compliance' });
+  }
+});
+
+// ── DELETE /api/memos/:id/compliance-document — Delete compliance document ───
+
+router.delete('/:id/compliance-document', authenticate, async (req: Request, res: Response) => {
+  try {
+    const memo = await Memo.findById(req.params.id);
+    if (!memo) { res.status(404).json({ error: 'Memo not found' }); return; }
+    if (!(memo as any).complianceDocumentPath) {
+      res.status(404).json({ error: 'No compliance document found' });
+      return;
+    }
+    const filePath = path.join(__dirname, '../..', (memo as any).complianceDocumentPath);
+    await fs.unlink(filePath).catch(() => {});
+    (memo as any).complianceDocumentPath = undefined;
+    (memo as any).complianceDocumentName = undefined;
+    await memo.save();
+    res.json({ data: memo });
+  } catch (err: any) {
+    console.error('[MEMO] Delete compliance doc error:', err.message);
+    res.status(500).json({ error: 'Failed to delete compliance document' });
+  }
+});
+
+// ── GET /api/memos/:id/compliance-document — Download compliance document ────
+
+router.get('/:id/compliance-document', authenticate, async (req: Request, res: Response) => {
+  try {
+    const memo = await Memo.findById(req.params.id).lean() as any;
+    if (!memo || !memo.complianceDocumentPath) {
+      res.status(404).json({ error: 'No compliance document found' });
+      return;
+    }
+    const filePath = path.join(__dirname, '../..', memo.complianceDocumentPath);
+    const docName: string = memo.complianceDocumentName || 'compliance-document';
+
+    // Legacy .doc files uploaded before conversion-at-upload was added
+    if (/\.doc$/i.test(docName) && !/\.docx$/i.test(docName)) {
+      try {
+        const docBuffer = fsSync.readFileSync(filePath);
+        const docxBuffer = await convertDocToDocx(docBuffer);
+        if (docxBuffer) {
+          // Cache the converted file for future requests
+          const docxName = docName.replace(/\.doc$/i, '.docx');
+          const docxFilename = path.basename(filePath).replace(/\.doc$/i, '.docx');
+          const docxPath = path.join(path.dirname(filePath), docxFilename);
+          await fs.writeFile(docxPath, docxBuffer).catch(() => {});
+          // Update DB so future requests skip conversion
+          await Memo.findByIdAndUpdate(req.params.id, {
+            complianceDocumentPath: memo.complianceDocumentPath.replace(/\.doc$/i, '.docx'),
+            complianceDocumentName: docxName,
+          }).catch(() => {});
+          res.setHeader('Content-Disposition', `attachment; filename="${docxName}"`);
+          res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+          res.send(docxBuffer);
+          return;
+        }
+      } catch (convErr: any) {
+        console.log('[MEMO] .doc conversion failed, serving original:', convErr.message);
+      }
+    }
+
+    res.download(filePath, docName);
+  } catch {
+    res.status(500).json({ error: 'Failed to download document' });
   }
 });
 

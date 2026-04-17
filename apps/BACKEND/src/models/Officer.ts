@@ -71,6 +71,7 @@ const sectorOfficerSchema = new Schema(
 
 sectorOfficerSchema.index({ sectorId: 1, role: 1, isActive: 1 });
 sectorOfficerSchema.index({ officerId: 1 });
+sectorOfficerSchema.index({ isActive: 1, officerId: 1 });
 
 export const SectorOfficer = mongoose.model('SectorOfficer', sectorOfficerSchema);
 

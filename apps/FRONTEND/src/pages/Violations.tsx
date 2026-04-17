@@ -76,13 +76,14 @@ const Violations: React.FC = () => {
 
   return (
     <div>
-      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500">
         <h1 className="text-sm font-bold text-white uppercase tracking-wider">Violations</h1>
         <p className="text-[11px] text-blue-200 mt-1">Auto-generated when Task Force detects activity in an SI's assigned area</p>
       </div>
 
       <div className="border border-slate-200 bg-white shadow overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
           <thead className="bg-gradient-to-r from-[#1a2a4a] to-[#2d4a6f]">
             <tr className="text-left text-white">
               <th className="px-4 py-3 text-[11px] font-bold uppercase tracking-wider">Date</th>
@@ -144,6 +145,7 @@ const Violations: React.FC = () => {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {pagination.total > 20 && (
@@ -157,7 +159,7 @@ const Violations: React.FC = () => {
       {/* Edit Modal */}
       {editItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-md overflow-hidden">
+          <div className="bg-white shadow-xl w-[95vw] max-w-md overflow-hidden">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4 flex items-center justify-between">
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">Edit Violation</h2>
               <button onClick={() => setEditItem(null)} className="text-blue-200 hover:text-white"><X size={20} /></button>
@@ -202,7 +204,7 @@ const Violations: React.FC = () => {
       {/* Delete Confirmation */}
       {deleteItem && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-sm overflow-hidden">
+          <div className="bg-white shadow-xl w-[95vw] max-w-sm overflow-hidden">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-6 py-4">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider">Delete Violation?</h3>
             </div>

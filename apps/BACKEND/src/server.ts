@@ -29,7 +29,14 @@ const app = express();
 
 // Middleware
 app.use(helmet());
-app.use(cors({ origin: config.clientUrl, credentials: true }));
+const allowedOrigins = config.clientUrl.split(',').map((s) => s.trim());
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+    else cb(new Error('CORS not allowed'));
+  },
+  credentials: true,
+}));
 app.use(cookieParser());
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));

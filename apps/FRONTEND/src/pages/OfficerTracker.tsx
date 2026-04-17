@@ -1,14 +1,17 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { getOfficerMemoTracker, getOfficerMemos, getHierarchy } from '../services/endpoints';
+import { getOfficerMemoTracker, getOfficerMemos, getHierarchy, downloadComplianceDocument } from '../services/endpoints';
 import FilterDropdown from '../components/FilterDropdown';
 import {
-  Filter, Shield, MapPin, Search, ChevronDown, ChevronRight,
+  Filter, Shield, MapPin, Search, ChevronDown,
   FileText, Calendar, RotateCcw, AlertTriangle, UserCheck,
-  Eye, AlertOctagon, Users, TriangleAlert,
+  Eye, Users, X, Download,
+  CheckCircle2, Clock, ArrowRight, Gavel,
+  ChevronLeft, ChevronRight, Loader2,
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { renderAsync } from 'docx-preview';
 
 interface TrackerRow {
   officerId: string;
@@ -37,6 +40,12 @@ interface OfficerMemo {
   date: string;
   status: string;
   subject: string;
+  complianceStatus?: 'AWAITING_REPLY' | 'COMPLIED';
+  compliedAt?: string;
+  complianceDocumentName?: string;
+  complianceDocumentPath?: string;
+  complianceRemarks?: string;
+  approvedAt?: string;
 }
 
 const RANK_LABELS: Record<string, string> = {
@@ -61,10 +70,11 @@ const OfficerTracker: React.FC = () => {
   const [filterPsId, setFilterPsId] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [search, setSearch] = useState('');
-  const [expandedOfficer, setExpandedOfficer] = useState<string | null>(null);
+  const [selectedOfficer, setSelectedOfficer] = useState<TrackerRow | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('with-memos');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
-  // Hierarchy for dropdown options
   const { data: hierarchyData } = useQuery({
     queryKey: ['hierarchy'],
     queryFn: async () => { const res = await getHierarchy(); return res.data.data; },
@@ -123,6 +133,7 @@ const OfficerTracker: React.FC = () => {
 
   const onZoneChange = (v: string) => {
     setFilterZoneId(v);
+    setPage(1);
     if (v && filterPsId) {
       const ps = allStations.find((s) => s._id === filterPsId);
       if (ps && ps.zoneId !== v) { setFilterPsId(''); setFilterSector(''); }
@@ -131,6 +142,7 @@ const OfficerTracker: React.FC = () => {
 
   const onPsChange = (v: string) => {
     setFilterPsId(v);
+    setPage(1);
     if (v) {
       const ps = allStations.find((s) => s._id === v);
       if (ps && !filterZoneId) setFilterZoneId(ps.zoneId);
@@ -143,102 +155,54 @@ const OfficerTracker: React.FC = () => {
     setFilterPsId('');
     setFilterSector('');
     setSearch('');
+    setPage(1);
   };
 
-  // Fetch tracker data
-  const { data: trackerData, isLoading } = useQuery({
-    queryKey: ['officer-memo-tracker', filterZoneId, filterPsId, filterSector, search],
+  const { data: trackerResponse, isLoading } = useQuery({
+    queryKey: ['officer-memo-tracker', filterZoneId, filterPsId, filterSector, search, viewMode, page],
     queryFn: async () => {
-      const params: Record<string, unknown> = {};
+      const params: Record<string, unknown> = { viewMode, page, limit: PAGE_SIZE };
       if (filterZoneId) params.zoneId = filterZoneId;
       if (filterPsId) params.psId = filterPsId;
       if (filterSector) params.sector = filterSector;
       if (search.trim()) params.search = search.trim();
       const res = await getOfficerMemoTracker(params);
-      return res.data.data as TrackerRow[];
+      return res.data as {
+        data: TrackerRow[];
+        stats: { totalOfficers: number; officersWithMemos: number; totalMemos: number; actionRequired: number };
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+      };
     },
+    keepPreviousData: true,
   });
 
-  const allRows = trackerData || [];
-
-  // Filter by view mode
-  const rows = useMemo(() => {
-    if (viewMode === 'with-memos') return allRows.filter((r) => r.memoCount > 0);
-    if (viewMode === 'action-required') return allRows.filter((r) => r.memoCount >= 3);
-    return allRows;
-  }, [allRows, viewMode]);
-
-  // Stats (always from allRows)
-  const totalOfficers = allRows.length;
-  const officersWithMemos = allRows.filter((r) => r.memoCount > 0).length;
-  const totalMemos = allRows.reduce((sum, r) => sum + r.memoCount, 0);
-  const actionRequired = allRows.filter((r) => r.memoCount >= 3).length;
+  const rows = trackerResponse?.data || [];
+  const stats = trackerResponse?.stats || { totalOfficers: 0, officersWithMemos: 0, totalMemos: 0, actionRequired: 0 };
+  const pagination = trackerResponse?.pagination || { page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 };
 
   const getWarningLevel = (count: number) => {
-    if (count === 0) return { label: 'Clean', color: 'bg-emerald-100 text-emerald-700 border-emerald-300' };
-    if (count === 1) return { label: '1st Warning', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' };
-    if (count === 2) return { label: '2nd Warning', color: 'bg-orange-100 text-orange-700 border-orange-300' };
-    if (count === 3) return { label: '3rd Warning', color: 'bg-red-100 text-red-700 border-red-300' };
-    return { label: 'Action Due', color: 'bg-red-600 text-white border-red-700' };
+    if (count === 0) return { label: 'No Memos', color: 'bg-emerald-50 text-emerald-600 border-emerald-200' };
+    if (count === 1) return { label: '1st Warning', color: 'bg-amber-50 text-amber-700 border-amber-200' };
+    if (count === 2) return { label: '2nd Warning', color: 'bg-orange-50 text-orange-700 border-orange-200' };
+    return { label: 'Charge Memo Due', color: 'bg-red-50 text-red-700 border-red-200' };
+  };
+
+  const switchView = (mode: ViewMode) => {
+    setViewMode(mode);
+    setPage(1);
+    setSelectedOfficer(null);
   };
 
   return (
-    <div>
+    <div className="flex-1 flex flex-col overflow-hidden -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 -mb-3 sm:-mb-4 md:-mb-6 px-3 sm:px-4 md:px-6">
       {/* Header */}
-      <div className="bg-[#003366] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-b-2 border-[#B8860B]">
-        <h1 className="text-sm font-bold text-white uppercase tracking-wider">Officer Wise Memo Tracker</h1>
-        <p className="text-[11px] text-neutral-400 mt-0.5">Track warning memos issued to officers — 3 warnings trigger punishable action</p>
+      <div className="flex-shrink-0 bg-[#003366] -mx-3 sm:-mx-4 md:-mx-6 px-3 sm:px-4 md:px-6 pt-3 pb-3 border-b-2 border-[#B8860B]">
+        <h1 className="text-sm font-bold text-white uppercase tracking-wider">Memo History</h1>
+        <p className="text-[11px] text-neutral-400 mt-0.5">Officer-wise memo tracking — 3 memos trigger charge memo</p>
       </div>
 
-      {/* Stats cards */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
-        <button
-          onClick={() => setViewMode('all')}
-          className={`border rounded-lg px-4 py-3 flex items-center gap-3 text-left transition-all ${
-            viewMode === 'all' ? 'ring-2 ring-[#003366] border-[#003366] bg-blue-50' : 'bg-blue-50 border-blue-200 hover:border-blue-300'
-          }`}
-        >
-          <Users size={22} className="text-[#003366]" />
-          <div>
-            <p className="text-xl font-bold text-slate-800">{totalOfficers}</p>
-            <p className="text-[11px] text-slate-500 font-medium">Total Officers</p>
-          </div>
-        </button>
-        <button
-          onClick={() => setViewMode('with-memos')}
-          className={`border rounded-lg px-4 py-3 flex items-center gap-3 text-left transition-all ${
-            viewMode === 'with-memos' ? 'ring-2 ring-amber-500 border-amber-500 bg-amber-50' : 'bg-amber-50 border-amber-200 hover:border-amber-300'
-          }`}
-        >
-          <AlertTriangle size={22} className="text-amber-600" />
-          <div>
-            <p className="text-xl font-bold text-slate-800">{officersWithMemos}</p>
-            <p className="text-[11px] text-slate-500 font-medium">Officers With Warnings</p>
-          </div>
-        </button>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center gap-3">
-          <FileText size={22} className="text-blue-600" />
-          <div>
-            <p className="text-xl font-bold text-slate-800">{totalMemos}</p>
-            <p className="text-[11px] text-slate-500 font-medium">Total Memos Issued</p>
-          </div>
-        </div>
-        <button
-          onClick={() => setViewMode('action-required')}
-          className={`border rounded-lg px-4 py-3 flex items-center gap-3 text-left transition-all ${
-            viewMode === 'action-required' ? 'ring-2 ring-red-500 border-red-500 bg-red-50' : 'bg-red-50 border-red-200 hover:border-red-300'
-          }`}
-        >
-          <AlertOctagon size={22} className="text-red-600" />
-          <div>
-            <p className="text-xl font-bold text-slate-800">{actionRequired}</p>
-            <p className="text-[11px] text-red-600 font-bold">Action Required (3+ Memos)</p>
-          </div>
-        </button>
-      </div>
-
-      {/* Filters */}
-      <div className="flex items-center gap-2.5 mb-5 flex-wrap">
+      {/* Filters + View Mode Buttons */}
+      <div className="flex-shrink-0 flex items-center gap-2 py-3 flex-wrap">
         <FilterDropdown
           icon={<Filter size={13} />}
           placeholder="All Zones"
@@ -258,254 +222,534 @@ const OfficerTracker: React.FC = () => {
           icon={<MapPin size={13} />}
           placeholder="All Sectors"
           value={filterSector}
-          onChange={(v) => setFilterSector(v)}
+          onChange={(v) => { setFilterSector(v); setPage(1); }}
           options={sectorList.map((s) => ({ value: s.name, label: s.name }))}
         />
-        <div className="w-px h-6 bg-[#D9DEE4] mx-1" />
-        <div className="inline-flex items-center gap-1.5 bg-white shadow-[0_1px_3px_rgba(0,51,102,0.1)] border border-[#003366]/10 text-[#003366] pl-3 pr-2.5 py-[7px] rounded-lg hover:shadow-[0_2px_6px_rgba(0,51,102,0.15)] hover:border-[#003366]/20 transition-all">
-          <Search size={13} className="flex-shrink-0 opacity-50" />
+        <div className="inline-flex items-center gap-1.5 bg-white shadow-sm border border-slate-200 text-slate-700 pl-3 pr-2.5 py-[7px] rounded-lg">
+          <Search size={13} className="flex-shrink-0 text-slate-400" />
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search officer name"
-            className="text-[12px] font-semibold bg-transparent focus:outline-none text-[#1C2334] w-[180px] placeholder:text-slate-400"
+            className="text-[12px] font-medium bg-transparent focus:outline-none text-slate-700 w-full sm:w-[180px] placeholder:text-slate-400"
           />
         </div>
         {hasActiveFilters && (
           <button
             onClick={clearFilters}
-            className="inline-flex items-center gap-1.5 bg-white shadow-[0_1px_3px_rgba(155,44,44,0.12)] border border-[#9B2C2C]/15 text-[#9B2C2C] pl-2.5 pr-3 py-[7px] rounded-lg text-[12px] font-semibold hover:bg-[#9B2C2C]/5 hover:shadow-[0_2px_6px_rgba(155,44,44,0.18)] transition-all"
+            className="inline-flex items-center gap-1 bg-white shadow-sm border border-slate-200 text-red-600 px-2.5 py-[7px] rounded-lg text-[12px] font-semibold hover:bg-red-50 transition-colors"
           >
             <RotateCcw size={12} />
             Clear
           </button>
         )}
+
+        <div className="w-px h-6 bg-slate-200 mx-0.5 hidden sm:block" />
+
+        {/* View mode buttons */}
+        <button
+          onClick={() => switchView('all')}
+          className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-semibold border transition-all ${
+            viewMode === 'all'
+              ? 'bg-[#003366] text-white border-[#003366]'
+              : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <Users size={13} />
+          All <span className="font-bold">{stats.totalOfficers}</span>
+        </button>
+        <button
+          onClick={() => switchView('with-memos')}
+          className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-semibold border transition-all ${
+            viewMode === 'with-memos'
+              ? 'bg-amber-500 text-white border-amber-500'
+              : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+          }`}
+        >
+          <AlertTriangle size={13} />
+          Warnings <span className="font-bold">{stats.officersWithMemos}</span>
+        </button>
+        <button
+          onClick={() => switchView('action-required')}
+          className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-semibold border transition-all ${
+            viewMode === 'action-required'
+              ? 'bg-red-600 text-white border-red-600'
+              : 'bg-white text-red-600 border-slate-200 hover:border-red-300'
+          }`}
+        >
+          <Gavel size={13} />
+          Charge Due <span className="font-bold">{stats.actionRequired}</span>
+        </button>
       </div>
 
-      {/* Table */}
-      <div className="border border-slate-300 bg-white rounded-sm overflow-hidden">
-        <table className="w-full text-[13px] table-fixed">
-          <thead>
-            <tr className="bg-[#003366] text-white text-left">
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[46px] text-center">Sl.</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[13%]">Zone</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[15%]">Police Station</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[9%]">Sector</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[18%]">Officer Name</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[7%]">Rank</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[10%]">Role</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[8%] text-center">Memos</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[14%] text-center">Warning Level</th>
-              <th className="px-3 py-3 font-bold text-[11px] uppercase tracking-wider w-[40px] text-center"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              <tr><td colSpan={10} className="px-4 py-16 text-center text-slate-400 font-medium">Loading officers…</td></tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="px-4 py-16 text-center">
-                  <UserCheck size={32} className="mx-auto text-slate-300 mb-2" />
-                  <p className="text-[13px] font-semibold text-slate-500">
-                    {viewMode === 'with-memos' ? 'No officers with warning memos' :
-                     viewMode === 'action-required' ? 'No officers require punishable action' :
-                     'No officers found'}
-                  </p>
-                  <p className="text-[12px] text-slate-400 mt-0.5">Adjust your filters to see results.</p>
-                </td>
-              </tr>
-            ) : (
-              rows.map((row, idx) => {
-                const isExpanded = expandedOfficer === row.officerId;
-                const warning = getWarningLevel(row.memoCount);
-                return (
-                  <React.Fragment key={`${row.officerId}-${row.sectorId}-${idx}`}>
-                    <tr
-                      onClick={() => row.memoCount > 0 ? setExpandedOfficer(isExpanded ? null : row.officerId) : undefined}
-                      className={`border-b border-slate-100 transition-colors ${
-                        row.memoCount > 0 ? 'cursor-pointer hover:bg-blue-50/60' : ''
-                      } ${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${
-                        isExpanded ? '!bg-blue-50' : ''
-                      } ${row.memoCount >= 3 ? 'border-l-[3px] border-l-red-500' : ''}`}
-                    >
-                      <td className="px-3 py-2.5 text-center font-bold text-slate-400 text-[12px]">{idx + 1}</td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-700 truncate">{row.zone}</td>
-                      <td className="px-3 py-2.5 text-slate-700 truncate">{row.policeStation}</td>
-                      <td className="px-3 py-2.5 text-slate-600 truncate">{row.sector}</td>
-                      <td className="px-3 py-2.5 font-bold text-slate-800 truncate">{row.name}</td>
-                      <td className="px-3 py-2.5">
-                        <span className="text-[11px] font-bold text-[#003366] bg-[#003366]/10 px-1.5 py-0.5 rounded">
-                          {RANK_LABELS[row.rank] || row.rank}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-[12px] text-slate-500 truncate">{row.role.replace(/_/g, ' ')}</td>
-                      <td className="px-3 py-2.5 text-center">
-                        <span className="text-[13px] font-bold text-slate-800">{row.memoCount}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-center">
-                        <span className={`inline-block px-2.5 py-1 text-[10px] font-bold tracking-wider rounded border ${warning.color}`}>
-                          {warning.label.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-center">
-                        {row.memoCount > 0 && (
-                          isExpanded
-                            ? <ChevronDown size={14} className="text-[#003366] mx-auto" />
-                            : <ChevronRight size={14} className="text-slate-400 mx-auto" />
-                        )}
+      {/* Main content area */}
+      <div className={`flex-1 flex flex-col ${selectedOfficer ? 'lg:flex-row' : ''} gap-3 min-h-0 overflow-hidden`}>
+        {/* Officer Table */}
+        <div className={`${selectedOfficer ? 'min-h-[200px] lg:min-h-0 lg:w-[42%] xl:w-[38%] flex-shrink-0' : 'w-full'} flex flex-col min-h-0`}>
+          <div className="border border-slate-200 bg-white rounded-lg overflow-hidden flex-1 flex flex-col">
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-[12px]">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-[#003366] text-white text-left">
+                    <th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[32px] text-center">#</th>
+                    <th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider">Officer</th>
+                    <th className={`px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider ${selectedOfficer ? 'hidden xl:table-cell' : ''}`}>Station / Sector</th>
+                    <th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[56px] text-center">Memos</th>
+                    <th className={`px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[100px] text-center ${selectedOfficer ? 'hidden 2xl:table-cell' : ''}`}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isLoading ? (
+                    <tr><td colSpan={5} className="px-4 py-16 text-center text-slate-400 font-medium text-[13px]">Loading officers…</td></tr>
+                  ) : rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-16 text-center">
+                        <UserCheck size={28} className="mx-auto text-slate-300 mb-2" />
+                        <p className="text-[13px] font-semibold text-slate-500">
+                          {viewMode === 'with-memos' ? 'No officers with warnings' :
+                           viewMode === 'action-required' ? 'No officers with charge memo due' :
+                           'No officers found'}
+                        </p>
                       </td>
                     </tr>
-                    {isExpanded && (
-                      <tr>
-                        <td colSpan={10} className="px-0 py-0 bg-slate-50/80">
-                          <ExpandedMemos
-                            officerId={row.officerId}
-                            officerName={row.name}
-                            memoCount={row.memoCount}
-                            onViewMemo={(memoId) => navigate(`/memos/${memoId}`)}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })
+                  ) : (
+                    rows.map((row, idx) => {
+                      const warning = getWarningLevel(row.memoCount);
+                      const isSelected = selectedOfficer?.officerId === row.officerId && selectedOfficer?.sectorId === row.sectorId;
+                      return (
+                        <tr
+                          key={`${row.officerId}-${row.sectorId}-${idx}`}
+                          onClick={() => row.memoCount > 0 ? setSelectedOfficer(isSelected ? null : row) : undefined}
+                          className={`border-b border-slate-100 transition-colors ${
+                            row.memoCount > 0 ? 'cursor-pointer' : ''
+                          } ${isSelected ? 'bg-blue-50 border-l-[3px] border-l-[#003366]' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} ${
+                            !isSelected && row.memoCount > 0 ? 'hover:bg-slate-50' : ''
+                          } ${!isSelected && row.memoCount >= 3 ? 'border-l-[3px] border-l-red-400' : ''}`}
+                        >
+                          <td className="px-2 py-2 text-center text-slate-400 font-medium text-[11px]">{(pagination.page - 1) * pagination.limit + idx + 1}</td>
+                          <td className="px-2 py-2">
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 truncate text-[12px] leading-tight">{row.name}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[9px] font-bold text-[#003366] bg-[#003366]/8 px-1.5 py-[1px] rounded">
+                                  {row.role !== '—' ? row.role.replace(/_/g, ' ') : (RANK_LABELS[row.rank] || row.rank)}
+                                </span>
+                              </div>
+                              {/* Show station inline when column is hidden */}
+                              {selectedOfficer && (
+                                <p className="text-[10px] text-slate-400 truncate mt-0.5 xl:hidden">{row.policeStation} · {row.sector}</p>
+                              )}
+                            </div>
+                          </td>
+                          <td className={`px-2 py-2 ${selectedOfficer ? 'hidden xl:table-cell' : ''}`}>
+                            <p className="text-slate-700 truncate text-[11px] font-medium">{row.policeStation}</p>
+                            <p className="text-slate-400 text-[10px] truncate">{row.zone} · {row.sector}</p>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            {row.memoCount > 0 ? (
+                              <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[12px] font-bold ${
+                                row.memoCount >= 3 ? 'bg-red-600 text-white' : row.memoCount === 2 ? 'bg-orange-500 text-white' : 'bg-amber-500 text-white'
+                              }`}>
+                                {row.memoCount}
+                              </span>
+                            ) : (
+                              <span className="text-slate-300 text-[12px]">—</span>
+                            )}
+                          </td>
+                          <td className={`px-2 py-2 text-center ${selectedOfficer ? 'hidden 2xl:table-cell' : ''}`}>
+                            <span className={`inline-block px-2 py-1 text-[9px] font-bold tracking-wider rounded border ${warning.color}`}>
+                              {warning.label.toUpperCase()}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {/* Footer with pagination */}
+            {!isLoading && (
+              <div className="flex-shrink-0 border-t border-slate-100 px-3 py-1.5 bg-slate-50/60 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-400 tabular-nums">
+                  {pagination.total > 0
+                    ? `${(pagination.page - 1) * pagination.limit + 1}–${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total}`
+                    : '0 officers'}
+                </span>
+                {pagination.totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      className="p-1 rounded hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft size={14} className="text-slate-600" />
+                    </button>
+                    <span className="text-[11px] font-semibold text-slate-500 tabular-nums px-1">
+                      {pagination.page} / {pagination.totalPages}
+                    </span>
+                    <button
+                      onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+                      disabled={page >= pagination.totalPages}
+                      className="p-1 rounded hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight size={14} className="text-slate-600" />
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Footer count */}
-      {!isLoading && rows.length > 0 && (
-        <div className="flex items-center justify-between mt-3">
-          <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
-            Showing {rows.length} of {totalOfficers} officers
-            {viewMode === 'with-memos' && ' (with warnings)'}
-            {viewMode === 'action-required' && ' (action required)'}
-          </span>
+          </div>
         </div>
-      )}
+
+        {/* Officer Detail Panel */}
+        {selectedOfficer && (
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <OfficerDetailPanel
+              officer={selectedOfficer}
+              onClose={() => setSelectedOfficer(null)}
+              onViewMemo={(memoId) => navigate(`/memos/${memoId}`)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
-// Expanded memo list for an officer
-const ExpandedMemos: React.FC<{
-  officerId: string;
-  officerName: string;
-  memoCount: number;
+/* ─── Officer Detail Panel ─────────────────────────────────────────── */
+const OfficerDetailPanel: React.FC<{
+  officer: TrackerRow;
+  onClose: () => void;
   onViewMemo: (memoId: string) => void;
-}> = ({ officerId, officerName, memoCount, onViewMemo }) => {
+}> = ({ officer, onClose, onViewMemo }) => {
   const { data, isLoading } = useQuery({
-    queryKey: ['officer-memos', officerId],
+    queryKey: ['officer-memos', officer.officerId],
     queryFn: async () => {
-      const res = await getOfficerMemos(officerId);
+      const res = await getOfficerMemos(officer.officerId);
       return res.data.data as OfficerMemo[];
     },
   });
 
   const memos = data || [];
+  const compliedCount = memos.filter(m => m.complianceStatus === 'COMPLIED').length;
+  const awaitingCount = memos.filter(m => m.complianceStatus === 'AWAITING_REPLY').length;
+
+  // Compliance preview modal state
+  const [compliancePreview, setCompliancePreview] = useState<{ memoId: string; docName: string } | null>(null);
+  const [complianceLoading, setComplianceLoading] = useState(false);
+  const [complianceBlob, setComplianceBlob] = useState<Blob | null>(null);
+  const [complianceUrl, setComplianceUrl] = useState<string | null>(null);
+  const docxPreviewRef = useRef<HTMLDivElement>(null);
+
+  const openCompliancePreview = async (memoId: string, docName: string) => {
+    const isPdf = docName.toLowerCase().endsWith('.pdf');
+    const isDocxFile = docName.toLowerCase().endsWith('.docx');
+
+    if (isPdf) {
+      // Open PDF in a popup window with native viewer
+      try {
+        const res = await downloadComplianceDocument(memoId);
+        const blob = new Blob([res.data], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const w = Math.min(1100, window.screen.availWidth - 100);
+        const h = Math.min(800, window.screen.availHeight - 100);
+        const left = Math.round((window.screen.availWidth - w) / 2);
+        const top = Math.round((window.screen.availHeight - h) / 2);
+        window.open(url, '_blank', `width=${w},height=${h},left=${left},top=${top},toolbar=0,menubar=0,location=0`);
+      } catch { /* ignore */ }
+      return;
+    }
+
+    // For docx and other files, show in modal
+    setCompliancePreview({ memoId, docName });
+    setComplianceLoading(true);
+    setComplianceBlob(null);
+    setComplianceUrl(null);
+    try {
+      const res = await downloadComplianceDocument(memoId);
+      const blob = new Blob([res.data], { type: res.headers?.['content-type'] || 'application/octet-stream' });
+      setComplianceBlob(blob);
+      setComplianceUrl(URL.createObjectURL(blob));
+    } catch {
+      setComplianceBlob(null);
+    } finally {
+      setComplianceLoading(false);
+    }
+  };
+
+  const closeCompliancePreview = () => {
+    if (complianceUrl) URL.revokeObjectURL(complianceUrl);
+    setCompliancePreview(null);
+    setComplianceBlob(null);
+    setComplianceUrl(null);
+  };
+
+  const handleComplianceDownload = () => {
+    if (!complianceUrl || !compliancePreview) return;
+    const a = document.createElement('a');
+    a.href = complianceUrl;
+    a.download = compliancePreview.docName;
+    a.click();
+  };
+
+  const isDocx = compliancePreview?.docName?.toLowerCase().endsWith('.docx');
+
+  useEffect(() => {
+    if (docxPreviewRef.current && complianceBlob && isDocx && !complianceLoading) {
+      docxPreviewRef.current.innerHTML = '';
+      renderAsync(complianceBlob, docxPreviewRef.current, undefined, {
+        className: 'compliance-docx-preview',
+        inWrapper: false,
+        ignoreWidth: true,
+        ignoreHeight: true,
+        ignoreFonts: false,
+        breakPages: false,
+      }).catch(() => {});
+    }
+  }, [complianceBlob, isDocx, complianceLoading]);
+
 
   return (
-    <div className="px-8 py-4">
-      {/* Header with warning progress */}
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[11px] font-bold text-[#003366] uppercase tracking-wider flex items-center gap-1.5">
-          <FileText size={12} />
-          Warning Memos — {officerName}
-        </p>
-        <div className="flex items-center gap-2">
-          {/* Warning progress dots */}
-          <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 py-1">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="flex items-center gap-1">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                  memoCount >= i
-                    ? i === 3 ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
-                    : 'bg-slate-200 text-slate-400'
-                }`}>
-                  {i}
-                </div>
-                {i < 3 && <div className={`w-4 h-0.5 ${memoCount >= i + 1 ? 'bg-amber-400' : 'bg-slate-200'}`} />}
-              </div>
-            ))}
-            <span className="text-[10px] font-bold text-slate-400 ml-1">/ 3</span>
+    <div className="bg-white border border-slate-200 rounded-lg flex flex-col h-full overflow-hidden">
+      {/* Panel Header */}
+      <div className="bg-[#003366] px-4 sm:px-5 py-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-white font-bold text-[14px] truncate">{officer.name}</h2>
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <span className="text-[10px] font-bold text-blue-200 bg-white/15 px-2 py-0.5 rounded">
+              {RANK_LABELS[officer.rank] || officer.rank}
+            </span>
+            <span className="text-[10px] text-blue-200">{officer.policeStation} · {officer.sector}</span>
+            <span className="text-[10px] text-blue-300/60">|</span>
+            <span className="text-[10px] text-blue-200">{officer.zone}</span>
           </div>
-          {memoCount >= 3 && (
-            <span className="inline-flex items-center gap-1 bg-red-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-full">
-              <TriangleAlert size={10} />
-              PUNISHABLE ACTION DUE
+        </div>
+        <button onClick={onClose} className="text-white/60 hover:text-white mt-0.5 flex-shrink-0">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Warning Progress Bar */}
+      <div className="px-4 sm:px-5 py-3 border-b border-slate-100 bg-slate-50/60">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Warning Escalation</span>
+          {officer.memoCount >= 3 && (
+            <span className="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse">
+              <Gavel size={10} />
+              CHARGE MEMO DUE
             </span>
           )}
         </div>
+        <div className="flex items-center gap-1">
+          {[1, 2, 3].map((step) => (
+            <React.Fragment key={step}>
+              <div className="flex flex-col items-center gap-1 flex-1">
+                <div className={`w-full h-2 rounded-full ${
+                  officer.memoCount >= step
+                    ? step === 3 ? 'bg-red-500' : step === 2 ? 'bg-orange-400' : 'bg-amber-400'
+                    : 'bg-slate-200'
+                }`} />
+                <span className={`text-[9px] font-bold ${
+                  officer.memoCount >= step
+                    ? step === 3 ? 'text-red-600' : step === 2 ? 'text-orange-600' : 'text-amber-600'
+                    : 'text-slate-300'
+                }`}>
+                  {step === 3 ? '3rd Memo' : step === 2 ? '2nd Memo' : '1st Memo'}
+                </span>
+              </div>
+              {step < 3 && <ArrowRight size={10} className={`mt-[-10px] flex-shrink-0 ${officer.memoCount > step ? 'text-slate-400' : 'text-slate-200'}`} />}
+            </React.Fragment>
+          ))}
+          <ArrowRight size={10} className={`mt-[-10px] flex-shrink-0 ${officer.memoCount >= 3 ? 'text-red-400' : 'text-slate-200'}`} />
+          <div className="flex flex-col items-center gap-1">
+            <div className={`w-16 h-2 rounded-full ${officer.memoCount >= 3 ? 'bg-red-700' : 'bg-slate-200'}`} />
+            <span className={`text-[9px] font-bold whitespace-nowrap ${officer.memoCount >= 3 ? 'text-red-700' : 'text-slate-300'}`}>
+              Charge Memo
+            </span>
+          </div>
+        </div>
       </div>
 
-      {isLoading ? (
-        <p className="text-[12px] text-slate-400 py-3">Loading memos…</p>
-      ) : memos.length === 0 ? (
-        <p className="text-[12px] text-slate-400 py-3">No memos found.</p>
-      ) : (
-        <table className="w-full text-[12px] border border-slate-200 rounded overflow-hidden bg-white">
-          <thead>
-            <tr className="bg-[#003366]/5 text-left">
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider w-[60px]">Warning</th>
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider w-[100px]">Date</th>
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider w-[90px]">Cr. No</th>
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider">Police Station</th>
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider">Sections</th>
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider w-[80px]">Status</th>
-              <th className="px-3 py-2 font-bold text-[10px] text-[#003366] uppercase tracking-wider w-[70px] text-center">View</th>
-            </tr>
-          </thead>
-          <tbody>
-            {memos.map((m, i) => {
-              const warningNum = memos.length - i; // oldest memo = 1st warning
+      {/* Compliance summary */}
+      {!isLoading && memos.length > 0 && (
+        <div className="px-4 sm:px-5 py-2.5 border-b border-slate-100 flex items-center gap-4 flex-wrap">
+          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Compliance:</span>
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+            <CheckCircle2 size={12} /> {compliedCount} Complied
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600">
+            <Clock size={12} /> {awaitingCount} Awaiting
+          </span>
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
+            <FileText size={12} /> {memos.length} Total
+          </span>
+        </div>
+      )}
+
+      {/* Memo Timeline */}
+      <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-[12px] text-slate-400 font-medium">Loading memo history…</p>
+          </div>
+        ) : memos.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <p className="text-[12px] text-slate-400 font-medium">No memos found for this officer.</p>
+          </div>
+        ) : (
+          <div className="space-y-0">
+            {memos.map((memo, idx) => {
+              const warningNum = idx + 1; // sorted by date asc — first memo = 1st warning
+              const isComplied = memo.complianceStatus === 'COMPLIED';
+              const isAwaiting = memo.complianceStatus === 'AWAITING_REPLY';
               return (
-                <tr key={m._id} className={`border-t border-slate-100 ${i % 2 ? 'bg-white' : 'bg-slate-50/30'} hover:bg-blue-50/40 transition-colors`}>
-                  <td className="px-3 py-2">
-                    <span className={`inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-[10px] font-bold ${
-                      warningNum >= 3 ? 'bg-red-500 text-white' : 'bg-amber-500 text-white'
+                <div key={memo._id} className="relative pl-7 pb-5 last:pb-0">
+                  {/* Timeline line */}
+                  {idx < memos.length - 1 && (
+                    <div className="absolute left-[11px] top-[22px] bottom-0 w-[2px] bg-slate-200" />
+                  )}
+                  {/* Timeline dot */}
+                  <div className={`absolute left-0 top-[2px] w-[24px] h-[24px] rounded-full flex items-center justify-center text-[10px] font-bold border-2 ${
+                    warningNum >= 3 ? 'bg-red-600 text-white border-red-600' : warningNum === 2 ? 'bg-orange-500 text-white border-orange-500' : 'bg-amber-500 text-white border-amber-500'
+                  }`}>
+                    {warningNum}
+                  </div>
+
+                  {/* Memo Card */}
+                  <div className={`border rounded-lg overflow-hidden ${
+                    warningNum >= 3 ? 'border-red-200 bg-red-50/30' : 'border-slate-200 bg-white'
+                  }`}>
+                    {/* Card header */}
+                    <div className="px-3 py-2.5 flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-[1px] rounded ${
+                            warningNum >= 3 ? 'bg-red-100 text-red-700' : warningNum === 2 ? 'bg-orange-100 text-orange-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {warningNum >= 3 ? '3rd Warning' : warningNum === 2 ? '2nd Warning' : '1st Warning'}
+                          </span>
+                          {memo.memoNumber && (
+                            <span className="text-[10px] text-slate-400 font-mono">{memo.memoNumber}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] font-semibold text-slate-700 mt-1 line-clamp-2">
+                          {memo.subject || `Cr. No ${memo.crimeNo || '—'} · u/s ${memo.sections || '—'}`}
+                        </p>
+                        <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                            <Calendar size={10} className="text-slate-400" />
+                            Issued: {memo.approvedAt ? format(new Date(memo.approvedAt), 'dd MMM yyyy') : '—'}
+                          </span>
+                          {memo.policeStation && (
+                            <span className="text-[10px] text-slate-400">{memo.policeStation}</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onViewMemo(memo._id)}
+                        className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-[#003366] hover:text-[#B8860B] bg-[#003366]/5 hover:bg-[#B8860B]/10 px-2 py-1 rounded transition-colors"
+                      >
+                        <Eye size={11} />
+                        View
+                      </button>
+                    </div>
+
+                    {/* Compliance Section */}
+                    <div className={`px-3 py-2 border-t ${
+                      isComplied ? 'bg-emerald-50/60 border-emerald-100' : isAwaiting ? 'bg-amber-50/40 border-amber-100' : 'bg-slate-50/60 border-slate-100'
                     }`}>
-                      {warningNum}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-slate-700 font-medium tabular-nums">
-                    <span className="flex items-center gap-1">
-                      <Calendar size={11} className="text-slate-400" />
-                      {format(new Date(m.date), 'dd MMM yyyy')}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 font-mono font-bold text-slate-700">{m.crimeNo || '—'}</td>
-                  <td className="px-3 py-2 text-slate-600">{m.policeStation || '—'}</td>
-                  <td className="px-3 py-2 text-slate-600">
-                    <span className="line-clamp-1" title={m.sections || ''}>
-                      {m.sections ? `u/s ${m.sections}` : '—'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={`inline-block px-2 py-0.5 text-[10px] font-bold tracking-wider rounded ${
-                      m.status === 'SENT' ? 'bg-slate-700 text-white' :
-                      m.status === 'APPROVED' ? 'bg-emerald-700 text-white' : 'bg-blue-700 text-white'
-                    }`}>
-                      {m.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-center">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onViewMemo(m._id); }}
-                      className="inline-flex items-center gap-1 text-[#003366] hover:text-[#B8860B] font-bold text-[11px] transition-colors"
-                      title="View Memo"
-                    >
-                      <Eye size={13} />
-                      <span className="underline">View</span>
-                    </button>
-                  </td>
-                </tr>
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          {isComplied ? (
+                            <>
+                              <CheckCircle2 size={13} className="text-emerald-600" />
+                              <div>
+                                <span className="text-[10px] font-bold text-emerald-700">Compliance Received</span>
+                                {memo.compliedAt && (
+                                  <span className="text-[10px] text-emerald-600 ml-1.5">
+                                    on {format(new Date(memo.compliedAt), 'dd MMM yyyy')}
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          ) : isAwaiting ? (
+                            <>
+                              <Clock size={13} className="text-amber-600" />
+                              <span className="text-[10px] font-bold text-amber-700">Awaiting Compliance</span>
+                            </>
+                          ) : (
+                            <>
+                              <Clock size={13} className="text-slate-400" />
+                              <span className="text-[10px] font-semibold text-slate-400">No compliance yet</span>
+                            </>
+                          )}
+                        </div>
+                        {isComplied && memo.complianceDocumentName && (
+                          <button
+                            onClick={() => openCompliancePreview(memo._id, memo.complianceDocumentName!)}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-[#003366] hover:text-[#B8860B] bg-[#003366]/5 hover:bg-[#B8860B]/10 px-2 py-1 rounded transition-colors"
+                          >
+                            <Eye size={10} />
+                            View Compliance
+                          </button>
+                        )}
+                      </div>
+                      {isComplied && memo.complianceRemarks && (
+                        <p className="text-[10px] text-emerald-600 mt-1 pl-5 line-clamp-2">{memo.complianceRemarks}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        )}
+      </div>
+
+      {/* Compliance Document Preview Modal */}
+      {compliancePreview && (
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-6" onClick={closeCompliancePreview}>
+          <div className="bg-white rounded-lg shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-[#003366] rounded-t-lg">
+              <div className="min-w-0">
+                <h3 className="text-[12px] font-bold text-white uppercase tracking-wider">Compliance Document</h3>
+                <p className="text-[10px] text-blue-200 truncate mt-0.5">{compliancePreview.docName}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleComplianceDownload}
+                  disabled={!complianceUrl}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/15 text-white text-[10px] font-bold uppercase tracking-wider hover:bg-white/25 rounded transition disabled:opacity-40"
+                >
+                  <Download size={12} />
+                  Download
+                </button>
+                <button onClick={closeCompliancePreview} className="p-1 text-white/60 hover:text-white transition">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            {/* Modal Body */}
+            <div className="flex-1 overflow-auto p-4 bg-slate-50">
+              {complianceLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 size={28} className="animate-spin text-slate-400" />
+                </div>
+              ) : !complianceBlob ? (
+                <div className="flex items-center justify-center py-20">
+                  <p className="text-[12px] text-slate-400 font-medium">Failed to load document</p>
+                </div>
+              ) : isDocx ? (
+                <div ref={docxPreviewRef} className="bg-white border border-slate-200 p-4 min-h-[300px]" />
+              ) : complianceUrl ? (
+                <iframe src={complianceUrl} className="w-full h-[60vh] border border-slate-200 bg-white" title="Compliance Document" />
+              ) : null}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

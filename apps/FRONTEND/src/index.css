@@ -240,6 +240,54 @@ body {
   font-size: 8pt !important;
 }
 
+/* ── Compliance Document Viewer (docx-preview) ── */
+.compliance-docx-preview {
+  background: white !important;
+  padding: 20px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+.compliance-docx-preview > section.docx {
+  box-shadow: none !important;
+  margin: 0 auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 10px !important;
+  min-height: 0 !important;
+  height: auto !important;
+  box-sizing: border-box !important;
+  overflow: visible !important;
+}
+.compliance-docx-preview > section.docx:empty {
+  display: none !important;
+}
+.compliance-docx-preview article {
+  padding: 0 !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+  height: auto !important;
+}
+.compliance-docx-preview table {
+  width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed !important;
+  border-collapse: collapse;
+}
+.compliance-docx-preview table td,
+.compliance-docx-preview table th {
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  padding: 4px 6px !important;
+}
+.compliance-docx-preview col {
+  width: auto !important;
+}
+.compliance-docx-preview p {
+  margin: 2px 0 !important;
+}
+
 /* ── DSR HTML fallback (.doc / .txt files) ── */
 .dsr-document-view table {
   border-collapse: collapse;

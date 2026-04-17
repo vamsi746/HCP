@@ -1,13 +1,14 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers, getHierarchy, getMemoCounts, getDSRCaseRows } from '../services/endpoints';
+import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers, getHierarchy, getMemoCounts, getDSRCaseRows, downloadComplianceDocument } from '../services/endpoints';
 import MemoEditor from '../components/MemoEditor';
 import FilterDropdown from '../components/FilterDropdown';
-import { Fullscreen, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, Maximize2, AlertTriangle, Users, Briefcase, Scale, Filter, RotateCcw, Minimize2, Columns2, FileSpreadsheet, ZoomIn, ZoomOut, Scan } from 'lucide-react';
+import { Fullscreen, CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, Maximize2, AlertTriangle, Users, Briefcase, Scale, Filter, RotateCcw, Minimize2, Columns2, FileSpreadsheet, ZoomIn, ZoomOut, Scan, Eye, MessageSquareText, Download, BookOpen } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import type { Memo, MemoStatus } from '../types';
 import MemoPrintButton from '../components/MemoPrintButton';
+import { renderAsync } from 'docx-preview';
 
 const TABS: { key: string; label: string; disabled?: boolean }[] = [
   { key: 'PENDING_REVIEW', label: 'Pending' },
@@ -46,6 +47,20 @@ const Review: React.FC = () => {
   const [popupPos, setPopupPos] = useState({ x: -1, y: -1 });
   const interacting = useRef<'drag' | 'resize' | null>(null);
   const startRef = useRef({ mx: 0, my: 0, x: 0, y: 0, w: 0, h: 0 });
+
+  // Compliance doc preview
+  const [previewDoc, setPreviewDoc] = useState<{ url: string; name: string; blob?: Blob } | null>(null);
+
+  // Compliance split view: memo left + compliance doc right
+  const [complianceSplitOpen, setComplianceSplitOpen] = useState(false);
+  const [complianceDocUrl, setComplianceDocUrl] = useState<string | null>(null);
+  const [complianceDocName, setComplianceDocName] = useState<string>('');
+  const [complianceDocLoading, setComplianceDocLoading] = useState(false);
+  const [complianceDocBlob, setComplianceDocBlob] = useState<Blob | null>(null);
+
+  // Docx preview refs
+  const splitDocxRef = useRef<HTMLDivElement>(null);
+  const modalDocxRef = useRef<HTMLDivElement>(null);
 
   // Resizable split state (percentage of viewport width for the LEFT panel)
   const [splitPercent, setSplitPercent] = useState(55);
@@ -249,23 +264,34 @@ const Review: React.FC = () => {
   }, [rightPanelView, caseRowsHtml, casePopup?.dsrId, casePopup?.caseId]);
 
   // Draggable split divider handler
+  const splitRaf = useRef<number>(0);
   const onSplitDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingSplit.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    // Add overlay to prevent iframes from capturing mouse events
+    const overlay = document.createElement('div');
+    overlay.id = 'split-drag-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;cursor:col-resize;';
+    document.body.appendChild(overlay);
     const onMove = (ev: MouseEvent) => {
       if (!isDraggingSplit.current) return;
-      const container = splitContainerRef.current;
-      if (!container) return;
-      const rect = container.getBoundingClientRect();
-      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
-      setSplitPercent(Math.min(80, Math.max(25, pct)));
+      cancelAnimationFrame(splitRaf.current);
+      splitRaf.current = requestAnimationFrame(() => {
+        const container = splitContainerRef.current;
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+        setSplitPercent(Math.min(80, Math.max(25, pct)));
+      });
     };
     const onUp = () => {
       isDraggingSplit.current = false;
+      cancelAnimationFrame(splitRaf.current);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.getElementById('split-drag-overlay')?.remove();
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
     };
@@ -277,10 +303,13 @@ const Review: React.FC = () => {
   const { data, isLoading } = useQuery({
     queryKey: ['memos-review', tab, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo],
     queryFn: async () => {
+      const params: Record<string, unknown> = { limit: 50 };
       if (tab === 'COMPLIED') {
-        return { data: [], pagination: { page: 1, limit: 50, total: 0 } };
+        params.complianceView = 'true';
+        params.complianceStatus = 'COMPLIED';
+      } else {
+        params.status = tab;
       }
-      const params: Record<string, unknown> = { status: tab, limit: 50 };
       if (filterZoneId) params.zoneId = filterZoneId;
       if (filterPsId) params.psId = filterPsId;
       if (filterSector) params.sector = filterSector;
@@ -307,6 +336,7 @@ const Review: React.FC = () => {
 
   const getTabCount = (tabKey: string): number => {
     if (!countsData) return 0;
+    if (tabKey === 'COMPLIED') return countsData['compliance_COMPLIED'] || 0;
     const statuses = tabKey.split(',');
     return statuses.reduce((sum, s) => sum + (countsData[s] || 0), 0);
   };
@@ -470,6 +500,111 @@ const Review: React.FC = () => {
 
   const memos: Memo[] = data?.data || [];
 
+  const isCompliedTab = tab === 'COMPLIED';
+
+  const openComplianceReview = async (memo: Memo) => {
+    setSelectedId(memo._id);
+    setLoadingDetail(true);
+    setComplianceSplitOpen(true);
+    setComplianceDocUrl(null);
+    setComplianceDocBlob(null);
+    setComplianceDocName(memo.complianceDocumentName || 'Compliance Document');
+    try {
+      const res = await getMemo(memo._id);
+      setMemoDetail(res.data.data);
+      // Load compliance doc for right panel
+      if (memo.complianceDocumentPath) {
+        setComplianceDocLoading(true);
+        try {
+          const docRes = await downloadComplianceDocument(memo._id);
+          const blob = new Blob([docRes.data], { type: docRes.headers['content-type'] || 'application/octet-stream' });
+          setComplianceDocUrl(window.URL.createObjectURL(blob));
+          setComplianceDocBlob(blob);
+        } catch {
+          toast.error('Failed to load compliance document');
+        } finally {
+          setComplianceDocLoading(false);
+        }
+      }
+    } catch {
+      toast.error('Failed to load memo');
+    } finally {
+      setLoadingDetail(false);
+    }
+  };
+
+  const handleViewComplianceDoc = async (memo: Memo) => {
+    try {
+      const res = await downloadComplianceDocument(memo._id);
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      setPreviewDoc({ url, name: memo.complianceDocumentName || 'Compliance Document', blob });
+    } catch {
+      toast.error('Failed to load document');
+    }
+  };
+
+  const isDocxFile = (name: string) => /\.(docx?|DOC|DOCX)$/i.test(name);
+
+  const stripDocxInlineStyles = (container: HTMLDivElement) => {
+    container.querySelectorAll('*').forEach(el => {
+      const s = (el as HTMLElement).style;
+      s.width = '';
+      s.minWidth = '';
+      s.maxWidth = '';
+      s.height = '';
+      s.minHeight = '';
+      s.maxHeight = '';
+    });
+    container.querySelectorAll('section').forEach(sec => {
+      const s = (sec as HTMLElement).style;
+      s.padding = '0';
+      s.margin = '0';
+      s.height = 'auto';
+      s.minHeight = '0';
+    });
+    // Hide empty trailing sections
+    const sections = container.querySelectorAll('section.docx');
+    for (let i = sections.length - 1; i >= 0; i--) {
+      if (!(sections[i].textContent || '').trim()) (sections[i] as HTMLElement).style.display = 'none';
+      else break;
+    }
+  };
+
+  // Render docx in split view right panel
+  useEffect(() => {
+    if (splitDocxRef.current && complianceDocBlob && isDocxFile(complianceDocName) && !complianceDocLoading) {
+      splitDocxRef.current.innerHTML = '';
+      renderAsync(complianceDocBlob, splitDocxRef.current, undefined, {
+        className: 'compliance-docx-preview',
+        inWrapper: false,
+        ignoreWidth: true,
+        ignoreHeight: true,
+        ignoreFonts: false,
+        breakPages: false,
+      }).then(() => {
+        if (splitDocxRef.current) stripDocxInlineStyles(splitDocxRef.current);
+      }).catch(() => {});
+    }
+  }, [complianceDocBlob, complianceDocName, complianceDocLoading]);
+
+  // Render docx in preview modal
+  useEffect(() => {
+    if (modalDocxRef.current && previewDoc?.blob && isDocxFile(previewDoc.name)) {
+      modalDocxRef.current.innerHTML = '';
+      renderAsync(previewDoc.blob, modalDocxRef.current, undefined, {
+        className: 'compliance-docx-preview',
+        inWrapper: false,
+        ignoreWidth: true,
+        ignoreHeight: true,
+        ignoreFonts: false,
+        breakPages: false,
+      }).then(() => {
+        if (modalDocxRef.current) stripDocxInlineStyles(modalDocxRef.current);
+      }).catch(() => {});
+    }
+  }, [previewDoc]);
+
   /* ═══════════════════════════════════════════════════════════
      SHARED RENDER HELPERS
      ═══════════════════════════════════════════════════════════ */
@@ -544,7 +679,7 @@ const Review: React.FC = () => {
           onMouseDown={(e) => e.stopPropagation()}
         >
           <FileSpreadsheet size={12} />
-          {rightPanelView === 'document' ? 'Details' : 'DSR Rows'}
+          {rightPanelView === 'document' ? 'Details' : 'DSR'}
         </button>
         {mode === 'split' && (
           <button onClick={minimizePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Minimize to popup" onMouseDown={(e) => e.stopPropagation()}>
@@ -647,7 +782,7 @@ const Review: React.FC = () => {
     if (!assignModal) return null;
     return (
       <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => { setAssignModal(null); setOfficers(null); }}>
-        <div className="bg-white shadow-2xl w-full max-w-md border border-neutral-200 rounded-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-white shadow-2xl w-[95vw] max-w-md border border-neutral-200 rounded-sm" onClick={(e) => e.stopPropagation()}>
           <div className="bg-[#003366] px-5 py-3 flex items-center justify-between rounded-t-sm">
             <h2 className="text-sm font-bold text-white uppercase tracking-wider">Issue To</h2>
             <button onClick={() => { setAssignModal(null); setOfficers(null); }} className="text-white/50 hover:text-white"><X size={18} /></button>
@@ -708,7 +843,7 @@ const Review: React.FC = () => {
     if (!dialog.open) return null;
     return (
       <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center" onClick={closeDialog}>
-        <div className="w-full max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="w-[95vw] max-w-md bg-white border border-[#D9DEE4] shadow-2xl rounded-sm" onClick={(e) => e.stopPropagation()}>
           <div className="bg-[#003366] px-5 py-3 rounded-t-sm">
             <h3 className="text-sm font-bold text-white uppercase tracking-wider">{dialog.title}</h3>
           </div>
@@ -741,13 +876,26 @@ const Review: React.FC = () => {
      ═══════════════════════════════════════════════════════════ */
   if (selectedId && memoDetail) {
     const isSplit = panelMode === 'split' && !!casePopup;
+    const isComplianceSplit = complianceSplitOpen;
+
+    const closeComplianceView = () => {
+      setSelectedId(null);
+      setMemoDetail(null);
+      setComplianceSplitOpen(false);
+      if (complianceDocUrl) {
+        window.URL.revokeObjectURL(complianceDocUrl);
+        setComplianceDocUrl(null);
+      }
+      setComplianceDocBlob(null);
+      setComplianceDocName('');
+    };
 
     const leftContent = (
       <div className="flex flex-col h-full bg-[#F4F5F7] overflow-hidden">
         {/* Header bar */}
         <div className="bg-[#003366] px-5 py-3 flex items-center justify-between border-b-2 border-[#B8860B] flex-shrink-0 z-10">
           <div className="flex items-center gap-3 min-w-0">
-            <button onClick={() => { setSelectedId(null); setMemoDetail(null); }} className="p-1.5 hover:bg-white/10 text-white/70 hover:text-white transition flex-shrink-0">
+            <button onClick={isComplianceSplit ? closeComplianceView : () => { setSelectedId(null); setMemoDetail(null); }} className="p-1.5 hover:bg-white/10 text-white/70 hover:text-white transition flex-shrink-0">
               <ArrowLeft size={18} />
             </button>
             <div className="min-w-0">
@@ -820,22 +968,9 @@ const Review: React.FC = () => {
           </div>
         </div>
 
-        {/* Info strip — sticky below header */}
-        <div className="bg-white border-b border-[#D9DEE4] px-5 py-2.5 flex items-center gap-3 text-xs flex-wrap flex-shrink-0">
-          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><MapPin size={12} className="text-[#003366]" />{memoDetail.zone || '—'}</span>
-          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><Shield size={12} className="text-[#003366]" />{memoDetail.policeStation || '—'} PS</span>
-          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><Scale size={12} className="text-[#003366]" />u/s {memoDetail.sections || '—'}</span>
-          <span className="inline-flex items-center gap-1.5 bg-[#EBF0F5] text-[#1C2334] px-3 py-1 border border-[#D9DEE4] rounded-sm font-medium"><Calendar size={12} className="text-[#003366]" />{format(new Date(memoDetail.date), 'dd MMM yyyy')}</span>
-          {memoDetail.recipientName && (
-            <span className="inline-flex items-center gap-1.5 bg-[#E8F5E9] text-[#155A38] px-3 py-1 border border-[#1B6B46]/20 rounded-sm font-bold">
-              <UserCheck size={12} />Issued To: {memoDetail.recipientDesignation}, {memoDetail.recipientName}
-            </span>
-          )}
-        </div>
-
         {/* Memo content */}
         <div className="flex-1 overflow-y-auto scroll-smooth min-w-0" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c1c7cf transparent' }}>
-          <div className={`bg-white min-w-0 ${panelMode === 'split' ? 'memo-viewer-responsive' : ''}`}>
+          <div className={`bg-white min-w-0 ${(panelMode === 'split' || isComplianceSplit) ? 'memo-viewer-responsive' : ''}`}>
             <MemoEditor content={memoDetail.content} onUpdate={() => {}} editable={false} />
           </div>
         </div>
@@ -844,10 +979,80 @@ const Review: React.FC = () => {
 
     return (
       <>
-        {isSplit ? (
-          <div ref={splitContainerRef} className="flex -m-6" style={{ width: 'calc(100% + 3rem)', height: 'calc(100vh - 80px - 82px)' }}>
+        {isComplianceSplit ? (
+          /* Compliance split: memo left + compliance document right */
+          <div ref={splitContainerRef} className="flex -m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: 'calc(100vh - 80px - 82px)' }}>
+            {/* Left: Memo */}
+            <div className="h-full flex flex-col overflow-hidden" style={{ width: `${splitPercent}%` }}>
+              {leftContent}
+            </div>
+            {/* Draggable divider */}
+            <div
+              className="h-full w-[5px] bg-[#D9DEE4] hover:bg-[#003366] active:bg-[#003366] cursor-col-resize flex-shrink-0 relative group transition-colors duration-150"
+              onMouseDown={onSplitDragStart}
+            >
+              <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[3px] h-10 rounded-full bg-[#A0AEC0] group-hover:bg-white group-active:bg-white transition-colors" />
+            </div>
+            {/* Right: Compliance Document */}
+            <div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>
+              <div className="bg-[#003366] px-5 py-3 flex items-center justify-between flex-shrink-0 border-b-2 border-[#B8860B]">
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider truncate mr-2">Compliance Document</h2>
+                <div className="flex items-center gap-2">
+                  {complianceDocUrl && (
+                    <a
+                      href={complianceDocUrl}
+                      download={complianceDocName}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white/10 text-white border border-white/20 hover:bg-white/20 rounded-sm transition"
+                    >
+                      <Download size={11} /> Download
+                    </a>
+                  )}
+                </div>
+              </div>
+              <div className="flex-1 min-h-0 bg-white">
+                {complianceDocLoading ? (
+                  <div className="flex items-center justify-center h-full text-slate-400">
+                    <Loader2 size={24} className="animate-spin mr-2" />
+                    <span className="text-sm">Loading document…</span>
+                  </div>
+                ) : complianceDocUrl ? (
+                  complianceDocName.toLowerCase().endsWith('.pdf') ? (
+                    <iframe src={`${complianceDocUrl}#navpanes=0`} className="w-full h-full border-0" title="Compliance Document" />
+                  ) : isDocxFile(complianceDocName) ? (
+                    <div ref={splitDocxRef} className="w-full h-full overflow-auto bg-white" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c1c7cf transparent' }} />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">
+                      <FileText size={48} className="text-slate-300" />
+                      <p className="text-sm font-semibold">{complianceDocName}</p>
+                      <p className="text-[12px] text-slate-400">Preview not available for this file type</p>
+                      <a
+                        href={complianceDocUrl}
+                        download={complianceDocName}
+                        className="px-4 py-2 bg-[#003366] text-white text-[12px] font-bold uppercase tracking-wider hover:bg-[#004480] transition rounded-sm"
+                      >
+                        Download File
+                      </a>
+                    </div>
+                  )
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-2">
+                    <FileText size={40} className="text-slate-300" />
+                    <p className="text-sm font-semibold">No compliance document attached</p>
+                    {memoDetail.complianceRemarks && (
+                      <div className="mt-4 max-w-md bg-slate-50 border border-slate-200 p-4 rounded-sm">
+                        <p className="text-[11px] font-bold text-[#003366] uppercase tracking-wider mb-1.5">Compliance Remarks</p>
+                        <p className="text-[13px] text-slate-600 whitespace-pre-wrap">{memoDetail.complianceRemarks}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : isSplit ? (
+          <div ref={splitContainerRef} className="flex -m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: 'calc(100vh - 80px - 82px)' }}>
             {/* Left panel */}
-            <div className="h-full flex flex-col overflow-hidden" style={{ width: `${splitPercent}%`, transition: isDraggingSplit.current ? 'none' : 'width 0.15s ease' }}>
+            <div className="h-full flex flex-col overflow-hidden" style={{ width: `${splitPercent}%` }}>
               {leftContent}
             </div>
             {/* Draggable divider */}
@@ -858,13 +1063,13 @@ const Review: React.FC = () => {
               <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[3px] h-10 rounded-full bg-[#A0AEC0] group-hover:bg-white group-active:bg-white transition-colors" />
             </div>
             {/* Right panel */}
-            <div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%`, transition: isDraggingSplit.current ? 'none' : 'width 0.15s ease' }}>
+            <div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>
               {renderPanelHeader(casePopup!, 'split')}
               {renderRightPanelBody(casePopup!)}
             </div>
           </div>
         ) : (
-          <div className="-m-6 overflow-hidden" style={{ width: 'calc(100% + 3rem)', height: 'calc(100vh - 80px - 82px)' }}>
+          <div className="-m-3 sm:-m-4 md:-m-6 overflow-hidden w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: 'calc(100vh - 80px - 82px)' }}>
             {leftContent}
           </div>
         )}
@@ -892,7 +1097,7 @@ const Review: React.FC = () => {
       {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto scroll-smooth p-5" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c1c7cf transparent' }}>
         {/* Tabs */}
-        <div className="flex items-center gap-0 mb-5 border-b border-neutral-200">
+        <div className="flex flex-wrap items-center gap-0 mb-5 border-b border-neutral-200">
           {TABS.map((t) => (
             <button
               key={t.key}
@@ -942,7 +1147,7 @@ const Review: React.FC = () => {
               type="date"
               value={filterDateFrom}
               onChange={(e) => setFilterDateFrom(e.target.value)}
-              className="text-[12px] font-semibold bg-transparent focus:outline-none cursor-pointer text-[#1C2334] w-[115px]"
+              className="text-[12px] font-semibold bg-transparent focus:outline-none cursor-pointer text-[#1C2334] w-[100px] sm:w-[115px]"
             />
           </div>
           <span className="text-[11px] text-[#718096] font-semibold">to</span>
@@ -952,7 +1157,7 @@ const Review: React.FC = () => {
               type="date"
               value={filterDateTo}
               onChange={(e) => setFilterDateTo(e.target.value)}
-              className="text-[12px] font-semibold bg-transparent focus:outline-none cursor-pointer text-[#1C2334] w-[115px]"
+              className="text-[12px] font-semibold bg-transparent focus:outline-none cursor-pointer text-[#1C2334] w-[100px] sm:w-[115px]"
             />
           </div>
           {hasActiveFilters && (
@@ -978,87 +1183,103 @@ const Review: React.FC = () => {
             <p className="text-sm text-neutral-500 font-semibold">No memos in this category.</p>
           </div>
         ) : (
-          <div className={`grid gap-4 ${isSplitList ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-3'}`}>
-            {memos.map((memo) => (
-              <div key={memo._id} className="bg-white border border-[#D9DEE4] rounded-sm shadow-sm hover:shadow-md hover:border-[#003366]/30 transition-all duration-200">
+          <div className={`grid gap-3 p-1 ${isSplitList ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5'}`}>
+            {memos.map((memo) => {
+              const isActive = casePopup?._id === memo._id;
+              return (
+              <div key={memo._id} className={`bg-white border-2 rounded-sm transition-all duration-200 ${isActive ? 'border-[#003366] shadow-[0_0_16px_rgba(0,51,102,0.35)] scale-[1.02]' : 'border-[#D9DEE4] shadow-sm hover:shadow-md hover:border-[#003366]/30'}`}>
                 {/* Card header */}
                 <div className="bg-[#003366] px-3 py-2 flex items-center justify-between rounded-t-sm">
                   <div className="flex items-center gap-1.5 min-w-0">
                     <span className="text-[11px] font-bold text-white uppercase tracking-wider truncate">
                       {memo.zone || 'Unknown'} Zone
                     </span>
-                    <span className="text-neutral-500 text-[9px]">|</span>
-                    <span className="text-[10px] text-neutral-400 font-mono whitespace-nowrap">Cr.No. {memo.crimeNo || '—'}</span>
                   </div>
                   <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 flex-shrink-0 rounded-sm ${
+                    isCompliedTab ? 'bg-emerald-700 text-white' :
                     memo.status === 'PENDING_REVIEW' ? 'bg-amber-500 text-white' :
                     memo.status === 'REVIEWED' ? 'bg-[#1B6B46] text-white' :
                     memo.status === 'ON_HOLD' ? 'bg-[#A66914] text-white' :
                     memo.status === 'REJECTED' ? 'bg-[#9B2C2C] text-white' :
                     'bg-[#1B6B46] text-white'
                   }`}>
-                    {memo.status === 'PENDING_REVIEW' ? 'PENDING' : memo.status === 'ON_HOLD' ? 'ON HOLD' : memo.status}
+                    {isCompliedTab ? 'COMPLIED' : memo.status === 'PENDING_REVIEW' ? 'PENDING' : memo.status === 'ON_HOLD' ? 'ON HOLD' : memo.status}
                   </span>
                 </div>
 
-                {/* Card body — 50/50 split */}
-                <div className="flex" style={{ height: '280px' }}>
-                  {/* LEFT 50% — Memo preview */}
-                  <div className="w-1/2 p-0.5 flex flex-col overflow-hidden border-r border-neutral-100">
-                    <div className="flex-1 border border-neutral-100 bg-white overflow-hidden relative">
-                      <div className="absolute inset-0 overflow-y-auto overflow-x-hidden scrollbar-thin" style={{ zoom: 0.3, scrollbarWidth: 'thin', scrollbarColor: '#d4d4d4 transparent' }}>
-                        <div className="p-4 [&_.ProseMirror]:!max-w-full [&_.ProseMirror]:!overflow-hidden [&_table]:!w-full [&_table]:!table-fixed [&_*]:!max-w-full [&_img]:!max-w-full [&_.tiptap-footer]:!overflow-hidden">
-                          <MemoEditor content={memo.content} onUpdate={() => {}} editable={false} />
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => openDetail(memo)}
-                      className="w-full flex-shrink-0 text-[#003366] text-[10px] font-bold uppercase tracking-wider py-1.5 hover:text-[#004480] transition flex items-center justify-center gap-1 mt-1.5"
-                    >
-                      <FileText size={11} />
-                      <span className="underline">Review</span>
-                    </button>
+                {/* Card body — Case details */}
+                <div className="flex flex-col bg-[#F0F2F5]" style={{ height: 280 }}>
+                  <div className="flex-shrink-0 px-3 pt-2">
+                    <p className="text-[11px] font-bold text-[#003366] uppercase tracking-wider mb-1 border-b border-[#003366]/20 pb-1">Case Details</p>
                   </div>
-
-                  {/* RIGHT 50% — Case details */}
-                  <div className="w-1/2 flex flex-col bg-[#F0F2F5]">
-                    <div className="flex-1 px-3 pt-1.5 pb-1 overflow-y-auto scrollbar-thin" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d4d4d4 transparent' }}>
-                      <p className="text-[10px] font-bold text-[#003366] uppercase tracking-wider mb-1 border-b border-[#003366]/20 pb-0.5">Case Details</p>
-                      <table className="w-full text-[11px] border-collapse">
-                        <tbody>
-                          {([
-                            ['Cr.No', memo.crimeNo || '—'],
-                            ['Nature', memo.caseDetails?.natureOfCase || '—'],
-                            ['Zone', memo.zone || '—'],
-                            ['PS', memo.policeStation || '—'],
-                            ['SHO', memo.caseDetails?.sho?.name || '—'],
-                            ['Sector', memo.caseDetails?.sector || '—'],
-                            ['SI', memo.caseDetails?.si?.name || '—'],
-                            ['Date', memo.raidedDate ? format(new Date(memo.raidedDate), 'dd MMM yyyy') : format(new Date(memo.date), 'dd MMM yyyy')],
-                          ] as [string, string][]).map(([k, v]) => (
-                            <tr key={k} className="border-b border-neutral-100 last:border-0">
-                              <td className="font-bold py-1 pr-1 whitespace-nowrap align-top text-[#1C2334]" style={{ width: '55px' }}>{k}</td>
-                              <td className="py-1 align-top text-[#A0AEC0]" style={{ width: '10px' }}>:</td>
-                              <td className="py-1 pl-1 font-bold text-[#1C2334]">{v}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="flex-shrink-0 flex items-center border-t border-[#D9DEE4] w-full">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); openCasePopup(memo); }}
-                        className="flex-1 flex items-center justify-center gap-1 text-[10px] text-[#003366] font-bold hover:text-[#004480] hover:bg-[#EBF0F5] px-3 py-2 transition"
-                      >
-                        <Maximize2 size={10} />
-                        View Full Details
-                      </button>
-                    </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-1" style={{ scrollbarWidth: 'thin', scrollbarColor: '#d4d4d4 transparent' }}>
+                    <table className="w-full text-[13px] border-collapse">
+                      <tbody>
+                        {([
+                          ['Cr.No', memo.crimeNo || '—'],
+                          ['Date', memo.raidedDate ? format(new Date(memo.raidedDate), 'dd MMM yyyy') : format(new Date(memo.date), 'dd MMM yyyy')],
+                          ['Nature', memo.caseDetails?.natureOfCase || '—'],
+                          ['Zone', memo.zone || '—'],
+                          ['PS', memo.policeStation || '—'],
+                          ['Sector', memo.caseDetails?.sector || '—'],
+                        ] as [string, string][]).map(([k, v]) => (
+                          <tr key={k} className="border-b border-neutral-200 last:border-0">
+                            <td className="font-semibold py-1.5 pr-1 whitespace-nowrap align-top text-[#4A5568]" style={{ width: '60px' }}>{k}</td>
+                            <td className="py-1.5 align-top text-[#A0AEC0]" style={{ width: '10px' }}>:</td>
+                            <td className="py-1.5 pl-1.5 font-bold text-[#1C2334]">{v}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex-shrink-0 flex items-center border-t border-[#D9DEE4] w-full">
+                    {isCompliedTab ? (
+                      <>
+                        <button
+                          onClick={() => openDetail(memo)}
+                          className="flex-1 flex items-center justify-center gap-1.5 text-[11px] text-[#003366] font-bold uppercase tracking-wider px-2 py-2.5 hover:bg-[#EBF0F5] transition border-r border-[#D9DEE4]"
+                        >
+                          <Eye size={12} className="flex-shrink-0" />
+                          Memo
+                        </button>
+                        <button
+                          onClick={() => openComplianceReview(memo)}
+                          className="flex items-center justify-center text-[#003366] px-3 py-2.5 hover:bg-[#EBF0F5] transition border-r border-[#D9DEE4]"
+                          title="Open Split View"
+                        >
+                          <BookOpen size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleViewComplianceDoc(memo)}
+                          className="flex-1 flex items-center justify-center gap-1.5 text-[11px] text-[#003366] font-bold uppercase tracking-wider px-2 py-2.5 hover:bg-[#EBF0F5] transition"
+                        >
+                          <Eye size={12} className="flex-shrink-0" />
+                          Compliance
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => openDetail(memo)}
+                          className="flex-1 flex items-center justify-center gap-1.5 text-[11px] bg-[#003366] text-white font-bold uppercase tracking-wider px-3 py-2.5 hover:bg-[#004480] transition border-r border-[#D9DEE4]"
+                        >
+                          <FileText size={12} />
+                          Review
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openCasePopup(memo); }}
+                          className="flex-1 flex items-center justify-center gap-1 text-[10px] text-[#003366] font-bold hover:text-[#004480] hover:bg-[#EBF0F5] px-3 py-2.5 transition"
+                        >
+                          <Maximize2 size={10} />
+                          View Full Details
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1068,9 +1289,9 @@ const Review: React.FC = () => {
   return (
     <>
       {isSplitList ? (
-        <div ref={splitContainerRef} className="flex -m-6" style={{ width: 'calc(100% + 3rem)', height: 'calc(100vh - 80px - 82px)' }}>
+        <div ref={splitContainerRef} className="flex -m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: 'calc(100vh - 80px - 82px)' }}>
           {/* Left panel */}
-          <div className="h-full flex flex-col overflow-hidden" style={{ width: `${splitPercent}%`, transition: isDraggingSplit.current ? 'none' : 'width 0.15s ease' }}>
+          <div className="h-full flex flex-col overflow-hidden" style={{ width: `${splitPercent}%` }}>
             {listContent}
           </div>
           {/* Draggable divider */}
@@ -1081,13 +1302,13 @@ const Review: React.FC = () => {
             <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[3px] h-10 rounded-full bg-[#A0AEC0] group-hover:bg-white group-active:bg-white transition-colors" />
           </div>
           {/* Right panel */}
-          <div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%`, transition: isDraggingSplit.current ? 'none' : 'width 0.15s ease' }}>
+          <div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>
             {renderPanelHeader(casePopup!, 'split')}
             {renderRightPanelBody(casePopup!)}
           </div>
         </div>
       ) : (
-        <div className="-m-6" style={{ width: 'calc(100% + 3rem)', height: 'calc(100vh - 80px - 82px)' }}>
+        <div className="-m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: 'calc(100vh - 80px - 82px)' }}>
           {listContent}
         </div>
       )}
@@ -1095,6 +1316,48 @@ const Review: React.FC = () => {
       {/* Modals */}
       {renderDialog()}
       {renderFloatingPopup()}
+
+      {/* Compliance document preview modal */}
+      {previewDoc && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[80]" onClick={() => { window.URL.revokeObjectURL(previewDoc.url); setPreviewDoc(null); }}>
+          <div className="bg-white shadow-2xl flex flex-col w-[95vw] max-w-7xl h-[92vh]" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-[#003366] px-5 py-3 flex items-center justify-between flex-shrink-0">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider truncate">{previewDoc.name}</h3>
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewDoc.url}
+                  download={previewDoc.name}
+                  className="flex items-center gap-1 px-3 py-1 text-[10px] font-bold uppercase tracking-wider bg-white/10 text-white border border-white/20 hover:bg-white/20 rounded-sm transition"
+                >
+                  <Download size={11} /> Download
+                </a>
+                <button onClick={() => { window.URL.revokeObjectURL(previewDoc.url); setPreviewDoc(null); }} className="text-white/50 hover:text-white transition">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              {previewDoc.name.toLowerCase().endsWith('.pdf') || previewDoc.url.includes('application/pdf') ? (
+                <iframe src={previewDoc.url} className="w-full h-full border-0" title="Document Preview" />
+              ) : isDocxFile(previewDoc.name) ? (
+                <div ref={modalDocxRef} className="w-full h-full overflow-auto bg-white" style={{ scrollbarWidth: 'thin', scrollbarColor: '#c1c7cf transparent' }} />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-3">
+                  <FileText size={48} className="text-slate-300" />
+                  <p className="text-sm font-semibold">Preview not available for this file type</p>
+                  <a
+                    href={previewDoc.url}
+                    download={previewDoc.name}
+                    className="px-4 py-2 bg-[#003366] text-white text-[12px] font-bold uppercase tracking-wider hover:bg-[#004480] transition rounded-sm"
+                  >
+                    Download File
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

@@ -151,6 +151,18 @@ export const rejectMemo = (id: string, remarks?: string) =>
 export const deleteMemo = (id: string) =>
   api.delete(`/memos/${id}`);
 
+export const complyMemo = (id: string, formData: FormData) =>
+  api.put(`/memos/${id}/comply`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+
+export const updateCompliance = (id: string, formData: FormData) =>
+  api.patch(`/memos/${id}/compliance`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+
+export const deleteComplianceDocument = (id: string) =>
+  api.delete(`/memos/${id}/compliance-document`);
+
+export const downloadComplianceDocument = (id: string) =>
+  api.get(`/memos/${id}/compliance-document`, { responseType: 'blob' });
+
 export const getCaseOfficers = (psId: string) =>
   api.get(`/memos/case-officers/${psId}`);
 
@@ -163,6 +175,8 @@ export const getDashboard = () => api.get('/reports/dashboard');
 export const getBottomPerformers = () => api.get('/reports/bottom-performers');
 export const getTopPerformers = () => api.get('/reports/top-performers');
 export const getZoneComparison = () => api.get('/reports/zone-comparison');
+export const getDashboardAnalytics = (params?: Record<string, unknown>) =>
+  api.get('/reports/dashboard-analytics', { params });
 
 // Mapping
 export const getMappingHierarchy = () => api.get('/mapping/hierarchy');

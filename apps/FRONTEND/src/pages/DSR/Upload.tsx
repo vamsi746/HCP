@@ -72,9 +72,9 @@ const DSRUpload: React.FC = () => {
   return (
     <div>
       {/* Official header */}
-      <div className="bg-slate-800 -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 flex items-center gap-4">
+      <div className="bg-slate-800 -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 flex items-center gap-4">
         <button
-          onClick={() => navigate('/dsr')}
+          onClick={() => navigate(-1)}
           className="p-2 text-white/70 hover:text-white hover:bg-slate-700 transition"
           title="Back to DSR List"
         >
@@ -92,7 +92,7 @@ const DSRUpload: React.FC = () => {
           {/* Category Selection */}
           <div>
             <label className="block text-[12px] font-bold text-slate-600 uppercase tracking-wider mb-2">DSR Type <span className="text-red-600">*</span></label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 type="button"
                 onClick={() => { setDsrCategory('SPECIAL_WINGS'); setFile(null); }}

@@ -56,7 +56,7 @@ const DSRDetail: React.FC = () => {
     <div>
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate('/dsr')} className="p-2 hover:bg-gray-100 rounded-lg transition">
+        <button onClick={() => navigate(-1)} className="p-2 hover:bg-gray-100 rounded-lg transition">
           <ArrowLeft size={20} />
         </button>
         <div className="flex-1">
@@ -69,7 +69,7 @@ const DSRDetail: React.FC = () => {
       </div>
 
       {/* Summary Strip */}
-      <div className="flex items-center gap-6 bg-white rounded-xl shadow px-6 py-4 mb-6 text-sm">
+      <div className="flex flex-wrap items-center gap-3 sm:gap-6 bg-white rounded-xl shadow px-6 py-4 mb-6 text-sm">
         <div>
           <span className="text-gray-400">Total Cases</span>
           <span className="ml-2 text-lg font-bold text-gray-800">{dsr.totalCases}</span>
@@ -88,8 +88,8 @@ const DSRDetail: React.FC = () => {
 
       {/* Cases Table */}
       {cases.length > 0 ? (
-        <div className="bg-white rounded-xl shadow overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
             <thead>
               <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 <th className="px-4 py-3 w-12">S.No</th>
@@ -173,7 +173,7 @@ const DSRDetail: React.FC = () => {
                                       <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-red-100 text-red-600 uppercase">Warning Generated</span>
                                     )}
                                   </div>
-                                  <div className="grid grid-cols-4 md:grid-cols-8 gap-3 text-xs">
+                                  <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3 text-xs">
                                     <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-100">
                                       <span className="block text-[10px] text-slate-400 uppercase font-semibold mb-0.5">S.No</span>
                                       <span className="text-slate-800 font-bold text-sm">{c.slNo}</span>

@@ -102,18 +102,18 @@ const Officers: React.FC = () => {
   return (
     <div>
       {/* Official header */}
-      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500 flex items-center justify-between">
+      <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 border-l-4 border-amber-500 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-sm font-bold text-white uppercase tracking-wider">Officers Register</h1>
           <p className="text-[11px] text-blue-200 mt-0.5">Manage police officers and personnel</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <input
             type="text"
             placeholder="Search name or badge…"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="border border-slate-500 bg-white/10 text-white placeholder:text-blue-200/60 px-4 py-1.5 text-xs w-56 focus:ring-2 focus:ring-amber-400 focus:outline-none"
+            className="border border-slate-500 bg-white/10 text-white placeholder:text-blue-200/60 px-4 py-1.5 text-xs w-full sm:w-56 focus:ring-2 focus:ring-amber-400 focus:outline-none"
           />
           <button
             onClick={() => setShowModal('add')}
@@ -127,13 +127,13 @@ const Officers: React.FC = () => {
       {/* Add / Edit Officer Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white shadow-xl w-full max-w-lg">
+          <div className="bg-white shadow-xl w-[95vw] max-w-lg">
             <div className="bg-gradient-to-r from-[#1a2a4a] to-[#2d3e5f] px-5 py-3 flex items-center justify-between">
               <h2 className="text-sm font-bold text-white uppercase tracking-wider">{showModal === 'edit' ? 'Edit Officer' : 'Add New Officer'}</h2>
               <button onClick={closeModal} className="text-blue-200 hover:text-white"><X size={18} /></button>
             </div>
             <form onSubmit={handleSubmit} className="p-5 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">Name *</label>
                   <input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -180,8 +180,8 @@ const Officers: React.FC = () => {
         </div>
       )}
 
-      <div className="border border-slate-200 bg-white">
-        <table className="w-full text-[13px] table-fixed">
+      <div className="border border-slate-200 bg-white overflow-x-auto">
+        <table className="w-full text-[13px] table-fixed min-w-[700px]">
           <thead>
             <tr className="bg-gradient-to-r from-[#1a2a4a] to-[#2d4a6f] text-white text-left">
               <th className="px-4 py-2.5 font-bold text-[11px] uppercase tracking-wider">Badge</th>

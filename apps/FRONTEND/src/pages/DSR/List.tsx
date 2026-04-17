@@ -196,7 +196,7 @@ const DSRList: React.FC = () => {
   return (
     <div>
       {/* Official header */}
-      <div className="bg-slate-800 -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6 flex items-center justify-between">
+      <div className="bg-slate-800 -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-[22px] font-bold text-white tracking-wide">DSR & MEMO GENERATION</h1>
           <p className="text-slate-400 text-[12px] mt-0.5 font-medium tracking-wider uppercase">Hyderabad City Police — Commissioner's Task Force</p>
@@ -211,7 +211,7 @@ const DSRList: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex flex-wrap items-center gap-3 mb-5">
         {/* Category toggle */}
         <div className="flex border border-slate-300 bg-white">
           <button
@@ -250,8 +250,8 @@ const DSRList: React.FC = () => {
       </div>
 
       {/* DSR Table */}
-      <div className="border border-slate-300 bg-white">
-        <table className="w-full text-[13px] table-fixed">
+      <div className="border border-slate-300 bg-white overflow-x-auto">
+        <table className="w-full text-[13px] table-fixed min-w-[700px]">
           <thead>
             <tr className="bg-slate-700 text-white text-left">
               <th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[50px] text-center">S.No</th>
@@ -653,7 +653,7 @@ const DSRList: React.FC = () => {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-200">
           <span className="text-[12px] font-bold text-slate-500 uppercase tracking-wider">
             Page {page} of {totalPages}
           </span>
@@ -700,7 +700,7 @@ const DSRList: React.FC = () => {
       {/* Full Document Viewer Modal */}
       {docViewer && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setDocViewer(null)}>
-          <div className="bg-white border border-slate-300 shadow-2xl w-[96vw] h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white border border-slate-300 shadow-2xl w-[98vw] sm:w-[96vw] h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             {/* Modal Header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-300 bg-slate-800 shrink-0">
               <div className="flex items-center gap-3">

@@ -295,7 +295,7 @@ const Mapping: React.FC = () => {
   return (
     <div>
       {/* Official header */}
-      <div className="bg-slate-800 -mx-6 -mt-6 px-6 pt-5 pb-4 mb-6">
+      <div className="bg-slate-800 -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-5 pb-4 mb-6">
         <h1 className="text-[22px] font-bold text-white tracking-wide">ZONE → AREA → OFFICERS MAPPING</h1>
         <p className="text-slate-400 text-[12px] mt-0.5 font-medium tracking-wider uppercase">Hyderabad City Police — Commissioner's Task Force</p>
       </div>
@@ -371,7 +371,7 @@ const Mapping: React.FC = () => {
                           placeholder="Search…"
                           value={search}
                           onChange={(e) => setSearch(e.target.value)}
-                          className="bg-white/10 border border-white/20 pl-8 pr-3 py-1.5 text-[12px] text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-white/30 w-44"
+                          className="bg-white/10 border border-white/20 pl-8 pr-3 py-1.5 text-[12px] text-white placeholder-white/50 focus:outline-none focus:ring-1 focus:ring-white/30 w-full sm:w-44"
                         />
                       </div>
                       <button onClick={() => { setAddingRow(true); setEditingId(null); }} className="p-1.5 hover:bg-white/10 transition" title="Add Officer">

@@ -64,6 +64,17 @@ const memoSchema = new Schema(
     approvedAt: Date,
 
     remarks: String,
+
+    // Compliance tracking (for approved/sent memos)
+    complianceStatus: {
+      type: String,
+      enum: ['AWAITING_REPLY', 'COMPLIED'],
+    },
+    complianceRemarks: String,
+    complianceDocumentPath: String,
+    complianceDocumentName: String,
+    compliedAt: Date,
+    compliedBy: { type: Schema.Types.ObjectId, ref: 'Officer' },
   },
   { timestamps: true }
 );
@@ -77,5 +88,8 @@ memoSchema.index({ status: 1, date: -1 });
 memoSchema.index({ zoneId: 1, psId: 1, status: 1, createdAt: -1 });
 memoSchema.index({ dsrId: 1, status: 1 });
 memoSchema.index({ caseId: 1 });
+memoSchema.index({ complianceStatus: 1, status: 1 });
+memoSchema.index({ recipientId: 1, status: 1 });
+memoSchema.index({ recipientId: 1, status: 1, date: 1 });
 
 export const Memo = mongoose.model('Memo', memoSchema);

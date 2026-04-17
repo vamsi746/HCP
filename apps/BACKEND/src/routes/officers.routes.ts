@@ -31,14 +31,15 @@ router.get('/', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/officers/memo-tracker — officers with zone/PS/sector + memo warning counts
+// GET /api/officers/memo-tracker — officers with zone/PS/sector + memo warning counts (paginated)
 router.get('/memo-tracker', authenticate, async (req: Request, res: Response) => {
   try {
-    const { zoneId, psId, sector, search } = req.query;
+    const { zoneId, psId, sector, search, viewMode = 'with-memos', page = '1', limit = '50' } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(200, Math.max(1, parseInt(limit as string) || 50));
 
     // 1. Get active sector assignments with officer + sector + station data
-    const assignmentFilter: any = { isActive: true };
-    const assignments = await SectorOfficer.find(assignmentFilter)
+    const assignments = await SectorOfficer.find({ isActive: true })
       .populate('officerId', 'name badgeNumber rank phone isActive remarks')
       .populate({
         path: 'sectorId',
@@ -51,10 +52,10 @@ router.get('/memo-tracker', authenticate, async (req: Request, res: Response) =>
       .lean();
 
     // 2. Build zone lookup: station → zone
-    const zones = await Zone.find().lean();
+    const zones = await Zone.find().select('_id name').lean();
     const { Division, Circle } = require('../models');
-    const divisions = await Division.find().lean();
-    const circles = await Circle.find().lean();
+    const divisions = await Division.find().select('_id zoneId').lean();
+    const circles = await Circle.find().select('_id divisionId').lean();
 
     const circleToDiv: Record<string, string> = {};
     for (const c of circles) circleToDiv[String(c._id)] = String(c.divisionId);
@@ -78,7 +79,7 @@ router.get('/memo-tracker', authenticate, async (req: Request, res: Response) =>
     const memoCountMap: Record<string, number> = {};
     for (const m of memoCounts) memoCountMap[String(m._id)] = m.count;
 
-    // 4. Build officer rows
+    // 4. Build all officer rows
     type OfficerRow = {
       officerId: string;
       name: string;
@@ -97,8 +98,8 @@ router.get('/memo-tracker', authenticate, async (req: Request, res: Response) =>
     };
 
     const rows: OfficerRow[] = [];
-    const seen = new Set<string>(); // deduplicate per officer+sector
-    const assignedOfficerIds = new Set<string>(); // track officers with assignments
+    const seen = new Set<string>();
+    const assignedOfficerIds = new Set<string>();
 
     for (const a of assignments) {
       const officer = a.officerId as any;
@@ -145,7 +146,7 @@ router.get('/memo-tracker', authenticate, async (req: Request, res: Response) =>
       });
     }
 
-    // 5. Include officers without sector assignments (Commissioner, senior officers, etc.)
+    // 5. Include officers without sector assignments
     if (!psId && !sector) {
       const allOfficers = await Officer.find({ isActive: true }).select('name badgeNumber rank phone remarks').lean();
       for (const off of allOfficers) {
@@ -173,16 +174,40 @@ router.get('/memo-tracker', authenticate, async (req: Request, res: Response) =>
       }
     }
 
-    // Sort by zone → PS → sector → rank
+    // 6. Sort by memoCount desc, then zone → PS → sector → rank
     const rankOrder: Record<string, number> = { COMMISSIONER: 0, ADDL_CP: 1, DCP: 2, ACP: 3, CI: 4, SI: 5, WSI: 6, PSI: 7, ASI: 8, HEAD_CONSTABLE: 9, CONSTABLE: 10 };
     rows.sort((a, b) =>
+      (b.memoCount - a.memoCount) ||
       a.zone.localeCompare(b.zone) ||
       a.policeStation.localeCompare(b.policeStation) ||
       a.sector.localeCompare(b.sector, undefined, { numeric: true }) ||
       (rankOrder[a.rank] ?? 99) - (rankOrder[b.rank] ?? 99)
     );
 
-    res.json({ data: rows });
+    // 7. Apply viewMode filter
+    let filtered = rows;
+    if (viewMode === 'with-memos') filtered = rows.filter((r) => r.memoCount > 0);
+    else if (viewMode === 'action-required') filtered = rows.filter((r) => r.memoCount >= 3);
+
+    // 8. Compute stats from full rows (pre-filter)
+    const stats = {
+      totalOfficers: rows.length,
+      officersWithMemos: rows.filter((r) => r.memoCount > 0).length,
+      totalMemos: rows.reduce((s, r) => s + r.memoCount, 0),
+      actionRequired: rows.filter((r) => r.memoCount >= 3).length,
+    };
+
+    // 9. Paginate
+    const total = filtered.length;
+    const totalPages = Math.ceil(total / limitNum);
+    const skip = (pageNum - 1) * limitNum;
+    const paged = filtered.slice(skip, skip + limitNum);
+
+    res.json({
+      data: paged,
+      stats,
+      pagination: { page: pageNum, limit: limitNum, total, totalPages },
+    });
   } catch (err) {
     console.error('memo-tracker error:', err);
     res.status(500).json({ error: 'Failed to fetch officer tracking data' });
@@ -196,8 +221,8 @@ router.get('/memo-tracker/:officerId/memos', authenticate, async (req: Request, 
       recipientId: new mongoose.Types.ObjectId(req.params.officerId),
       status: { $in: ['APPROVED', 'SENT'] },
     })
-      .select('memoNumber crimeNo policeStation zone sections date status recipientDesignation subject')
-      .sort({ date: -1 })
+      .select('memoNumber crimeNo policeStation zone sections date status recipientDesignation subject complianceStatus compliedAt complianceDocumentName complianceDocumentPath complianceRemarks approvedAt')
+      .sort({ date: 1 })
       .lean();
 
     res.json({ data: memos });
