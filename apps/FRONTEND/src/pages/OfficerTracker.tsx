@@ -173,7 +173,7 @@ const OfficerTracker: React.FC = () => {
         pagination: { page: number; limit: number; total: number; totalPages: number };
       };
     },
-    keepPreviousData: true,
+    placeholderData: (prev) => prev,
   });
 
   const rows = trackerResponse?.data || [];
@@ -314,7 +314,7 @@ const OfficerTracker: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    rows.map((row, idx) => {
+                    rows.map((row: TrackerRow, idx: number) => {
                       const warning = getWarningLevel(row.memoCount);
                       const isSelected = selectedOfficer?.officerId === row.officerId && selectedOfficer?.sectorId === row.sectorId;
                       return (
