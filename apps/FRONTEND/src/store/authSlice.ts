@@ -20,8 +20,8 @@ export const login = createAsyncThunk(
     try {
       const res = await endpoints.login(email, password);
       const { user, accessToken, refreshToken } = res.data.data;
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
+      if (accessToken) localStorage.setItem('accessToken', accessToken);
+      if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
       return user;
     } catch (err: any) {
       return rejectWithValue(err.response?.data?.error || 'Login failed');
@@ -30,6 +30,8 @@ export const login = createAsyncThunk(
 );
 
 export const fetchMe = createAsyncThunk('auth/fetchMe', async (_, { rejectWithValue }) => {
+  const token = localStorage.getItem('accessToken');
+  if (!token) return rejectWithValue(null);
   try {
     const res = await endpoints.fetchMe();
     return res.data.data;
@@ -71,7 +73,6 @@ const authSlice = createSlice({
       })
       .addCase(fetchMe.rejected, (state) => {
         state.loading = false;
-        state.user = null;
       })
       .addCase(logout.fulfilled, (state) => {
         state.user = null;
