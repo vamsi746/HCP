@@ -74,7 +74,7 @@ router.post('/login', authLimiter, validate(loginSchema), async (req: Request, r
       ipAddress: req.ip, userAgent: req.headers['user-agent'],
     });
 
-    res.json({ data: { user } });
+    res.json({ data: { user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken } });
   } catch {
     res.status(500).json({ error: 'Login failed' });
   }
@@ -123,7 +123,7 @@ router.post('/refresh', async (req: Request, res: Response) => {
       ...cookieOpts, path: '/api/auth', maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.json({ data: { user } });
+    res.json({ data: { user, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken } });
   } catch {
     res.status(401).json({ error: 'Invalid refresh token' });
   }
