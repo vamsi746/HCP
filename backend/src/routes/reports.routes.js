@@ -248,14 +248,20 @@ router.get('/dashboard-analytics', _auth.authenticate, async (req, res) => {
     ]);
     const socialViceBreakdown = (() => {
       const ALL_CATEGORIES = ['Peta', 'Gambling', 'Food Adulteration', 'Cross Message', 'Hookah Centers', 'Narcotics'];
+      const catSet = new Set(ALL_CATEGORIES);
       const map = new Map();
       ALL_CATEGORIES.forEach((c) => map.set(c, 0));
+      let others = 0;
       viceAgg.forEach((v) => {
-        const existing = map.get(v._id);
-        if (existing !== undefined) map.set(v._id, existing + v.memos);
-        else map.set(v._id, v.memos); // 'Other' or unexpected
+        if (catSet.has(v._id)) {
+          map.set(v._id, (map.get(v._id) || 0) + v.memos);
+        } else {
+          others += v.memos;
+        }
       });
-      return Array.from(map.entries()).map(([category, memos]) => ({ category, memos }));
+      const result = Array.from(map.entries()).map(([category, memos]) => ({ category, memos }));
+      result.push({ category: 'Others', memos: others });
+      return result;
     })();
 
     // ─── 6. Compliance trend (last 30 days) ─────────────────────────

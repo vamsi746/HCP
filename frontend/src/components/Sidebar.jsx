@@ -61,8 +61,8 @@ const Dock = () => {
     if (distance === 2) return -2;
     return 0;
   };
-  return <div className="shrink-0 flex justify-center py-1 sm:py-1.5 bg-gray-50 overflow-x-auto"><nav
-    className="flex items-end px-2 sm:px-3 py-1 sm:py-1.5 bg-white/80 backdrop-blur-2xl border border-gray-200/50 rounded-2xl shadow-lg shadow-black/5 min-w-0"
+  return <div className="shrink-0 relative bg-[#f0f2f5]" style={{ height: 68 }}><div className="absolute bottom-0 left-0 right-0 flex justify-center pb-1.5" style={{ zIndex: 50 }}><nav
+    className="flex items-end px-3 py-1.5 bg-white rounded-2xl shadow-md border border-gray-200 min-w-0"
     onMouseLeave={() => setHoveredIndex(null)}
   >{visibleItems.map(({ to, label, icon: Icon, color, text }, index) => {
     const scale = getScale(index);
@@ -98,6 +98,6 @@ const Dock = () => {
       className={`mt-0.5 font-medium text-center leading-tight min-h-[22px] flex items-start justify-center ${isActive ? `${text} font-semibold` : "text-gray-400"}`}
       style={{ fontSize: 9 }}
     >{label}</span>{isActive && <span className="w-1.5 h-1.5 rounded-full bg-current" style={{ color: "inherit" }} />}</div></div>;
-  })}</nav></div>;
+  })}</nav></div></div>;
 };
 export default Dock;
