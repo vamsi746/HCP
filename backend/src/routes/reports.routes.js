@@ -109,10 +109,7 @@ router.get('/dashboard-analytics', _auth.authenticate, async (req, res) => {
     for (const r of statusAgg) statusCounts[r._id] = r.count;
 
     const totalMemos = Object.values(statusCounts).reduce((a, b) => a + b, 0);
-    const pendingReview =
-      (statusCounts.PENDING_REVIEW || 0) +
-      (statusCounts.REVIEWED || 0) +
-      (statusCounts.ON_HOLD || 0);
+    const pendingReview = statusCounts.PENDING_REVIEW || 0;
     const approved = (statusCounts.APPROVED || 0) + (statusCounts.SENT || 0);
     const drafts = statusCounts.DRAFT || 0;
     const rejected = statusCounts.REJECTED || 0;
