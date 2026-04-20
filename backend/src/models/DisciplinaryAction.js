@@ -30,5 +30,7 @@ const disciplinaryActionSchema = new (0, _mongoose.Schema)(
 disciplinaryActionSchema.index({ officerId: 1, issuedAt: 1 });
 disciplinaryActionSchema.index({ actionType: 1 });
 disciplinaryActionSchema.index({ status: 1 });
+disciplinaryActionSchema.index({ officerId: 1, actionType: 1, status: 1 });
+disciplinaryActionSchema.index({ actionType: 1, issuedAt: -1 });
 
  const DisciplinaryAction = _mongoose2.default.model('DisciplinaryAction', disciplinaryActionSchema); exports.DisciplinaryAction = DisciplinaryAction;

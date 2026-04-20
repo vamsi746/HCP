@@ -275,7 +275,7 @@ const MemoList = () => {
     /* Official header */
   }<div className="bg-[#003366] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 mb-4 sm:mb-6 border-b-2 border-[#B8860B]"><h1 className="text-sm font-bold text-white uppercase tracking-wider">Memos & Compliance Register</h1><p className="text-[11px] text-neutral-400 mt-0.5">Hyderabad City Police — Commissioner's Task Force</p></div>{
     /* Status filter bar */
-  }<div className="flex items-center flex-wrap gap-2 sm:gap-3 mb-4"><span className="text-[12px] font-bold text-[#4A5568] uppercase tracking-wider mr-1">Status:</span>{STATUS_TABS.map((tab) => {
+  }<div className="flex items-center flex-wrap gap-2 sm:gap-3 mb-4">{STATUS_TABS.map((tab) => {
     const isActive = statusFilter === tab.key;
     const count = getTabCount(tab.key);
     return <button
@@ -334,7 +334,7 @@ const MemoList = () => {
             Clear All
           </button>}</div>{
     /* Compliance sub-filter */
-  }{isComplianceTab && <div className="flex items-center gap-2 mb-4"><span className="text-[11px] font-bold text-[#4A5568] uppercase tracking-wider mr-1">Show:</span>{[
+  }{isComplianceTab && <div className="flex items-center gap-2 mb-4">{[
     { key: "", label: "All" },
     { key: "AWAITING_REPLY", label: "Awaiting Reply" },
     { key: "COMPLIED", label: "Complied" }

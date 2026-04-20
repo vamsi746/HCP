@@ -98,5 +98,7 @@ dsrSchema.index({ processingStatus: 1, date: -1 });
 dsrSchema.index({ forceType: 1, date: -1 });
 dsrSchema.index({ forceType: 1, processingStatus: 1, date: -1 });
 dsrSchema.index({ dsrCategory: 1, date: -1 });
+dsrSchema.index({ 'parsedCases.sector': 1 });
+dsrSchema.index({ dsrCategory: 1, forceType: 1, processingStatus: 1, date: -1 });
 
  const DSR = _mongoose2.default.model('DSR', dsrSchema); exports.DSR = DSR;

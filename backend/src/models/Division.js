@@ -10,5 +10,6 @@ const divisionSchema = new (0, _mongoose.Schema)(
   { timestamps: true }
 );
 divisionSchema.index({ zoneId: 1 });
+divisionSchema.index({ zoneId: 1, isActive: 1 });
 
  const Division = _mongoose2.default.model('Division', divisionSchema); exports.Division = Division;

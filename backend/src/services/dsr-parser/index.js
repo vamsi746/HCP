@@ -181,9 +181,51 @@ function norm(s) {
   return s.replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
 }
 
+/** Check if a cell value is a placeholder (empty, dashes, NIL, NA, underscores) */
+function isPlaceholderCell(s) {
+  const t = (s || '').trim();
+  return !t || /^(--|\u2014|\u2013|-|_+|NIL|NA|N\/A)$/i.test(t);
+}
+
 /** Normalize for comparison: lowercase, remove extra spaces, common substitutions */
 function normCompare(s) {
   return s.toLowerCase().replace(/[\s\-_.]+/g, '').replace(/[''`]/g, '');
+}
+
+/** Convert Roman numeral string (I, II, III, IV, V, etc.) to Arabic number */
+function romanToArabic(roman) {
+  const map = { I: 1, V: 5, X: 10, L: 50, C: 100 };
+  let result = 0;
+  const upper = (roman || '').toUpperCase().trim();
+  for (let i = 0; i < upper.length; i++) {
+    const curr = map[upper[i]] || 0;
+    const next = map[upper[i + 1]] || 0;
+    result += curr < next ? -curr : curr;
+  }
+  return result || 0;
+}
+
+/** Extract sector from text, handling Roman numerals (III, I, IV), hyphens, mixed case */
+function extractSector(text) {
+  const m = text.match(/Sector\s*[-\u2013\u2014.]?\s*(\d+|[IVXivx]+)/i);
+  if (!m) return '';
+  const raw = m[1].trim();
+  if (/^\d+$/.test(raw)) return `Sector ${parseInt(raw)}`;
+  const num = romanToArabic(raw);
+  return num > 0 ? `Sector ${num}` : '';
+}
+
+/** Strip zone name prefix from a PS match string */
+function stripZonePrefix(psName) {
+  let cleaned = psName;
+  for (const zn of ZONE_NAMES) {
+    const re = new RegExp(`^${zn.replace(/\s+/g, '\\s*')}\\s*(?:Zone)?\\s*,?\\s*`, 'i');
+    cleaned = cleaned.replace(re, '').trim();
+  }
+  cleaned = cleaned.replace(/^Zone\s+/i, '').trim();
+  // Also strip Sector suffix
+  cleaned = cleaned.replace(/\s*,?\s*Sector\s*[-\u2013\u2014.]?\s*(\d+|[IVXivx]+)\s*$/i, '').trim();
+  return cleaned;
 }
 
 // ── Zone names ───────────────────────────────────────────────────────────────
@@ -340,48 +382,53 @@ const ZONE_RE = new RegExp(
     return (idx !== undefined && idx < row.length) ? (row[idx] || '') : '';
   };
 
-  // Only process rows immediately after the header, within the same table
-  for (let i = headerIdx + 1; i < rows.length; i++) {
+  // ── Find end boundary of ANNEXURE-I data (= start of ANNEXURE-II) ──
+  // Instead of heuristic break conditions, find the exact row where ANNEXURE-II starts
+  let annexIIStartRow = rows.length;
+  for (let ri = headerIdx + 1; ri < rows.length; ri++) {
+    if (rows[ri].some(c => /ANNEXURE\s*[-\u2013\u2014]?\s*(II|III|IV|V|2|3|4|5)\b/i.test(c || ''))) {
+      annexIIStartRow = ri; break;
+    }
+    const rjText = rows[ri].map(c => (c || '').toLowerCase()).join(' ');
+    if (rjText.includes('brief') && (rjText.includes('fact') || rjText.includes('description')) &&
+        /s[il]\.?\s*n/i.test(rjText) && rows[ri].length >= 6) {
+      annexIIStartRow = ri; break;
+    }
+  }
+  console.log('[PARSER-STRUCTURED] ANNEXURE-I boundary: header at', headerIdx, ', ANNEXURE-II at', annexIIStartRow);
+
+  // Process ALL ANNEXURE-I data rows within the boundary — no heuristic breaks
+  for (let i = headerIdx + 1; i < annexIIStartRow; i++) {
     const row = rows[i];
 
     // Skip rows with very different column count (merged summary rows) instead of stopping
-    if (Math.abs(row.length - expectedCols) > 3) {
+    if (Math.abs(row.length - expectedCols) > 5) {
       console.log(`[PARSER-STRUCTURED] Row ${i}: col count ${row.length} vs expected ${expectedCols}, skipping`);
       continue;
     }
 
-    const joined = row.map(c => c.toLowerCase()).join('|');
-    // Stop at "Total" summary row (matches "Total Cases", "Total Persons", "Total" etc.)
-    if (/^\s*total\b/i.test(row[0] || '')) break;
-    // Stop if this row IS a header for a different table — check that multiple short cells
-    // contain structural header words (not just data cells that happen to contain those words)
-    const headerLikeCells = row.filter(c => {
-      const t = c.trim().toLowerCase().replace(/[\r\n]+/g, ' ');
-      return t.length > 2 && t.length < 60 &&
-        /^(s[il]\.?\s*n|zone|nature|accused|action|seiz|brief|abscon|no\.?\s*of|worth|property|crime|vice|i\.?\s*r\.?)/i.test(t);
-    });
-    if (headerLikeCells.length >= 4) {
-      console.log(`[PARSER-STRUCTURED] Row ${i}: different table header detected (${headerLikeCells.length} header-like cells), stopping`);
-      break;
-    }
-    // Stop at another ANNEXURE-I-like header row (but not ANNEXURE-II)
-    if (row.length >= expectedCols - 1 && isAnnexureIHeader(row)) {
-      console.log(`[PARSER-STRUCTURED] Row ${i}: another header row detected, stopping`);
-      break;
+    // Skip "Total" summary rows — ONLY check first cell / slNo cell to avoid
+    // false positives when mammoth merges data rows with TOTAL rows at page breaks
+    const slNoCell = (colMap['slNo'] !== undefined ? row[colMap['slNo']] : row[0]) || '';
+    if (/^\s*total\b/i.test(slNoCell.trim()) || /^\s*total\b/i.test((row[0] || '').trim())) {
+      console.log(`[PARSER-STRUCTURED] Row ${i}: TOTAL row, skipping`);
+      continue;
     }
 
-    // Accept data rows: Sl.No is a number, OR has Zone/PS data, OR has substantive content
-    const firstCell = (row[0] || '').trim();
-    const hasSlNo = /^\d+/.test(firstCell);
-    const colZonePSRaw = cell(row, 'zonePS');
-    const hasZonePSData = /(Zone|PS\b|Sector)/i.test(colZonePSRaw);
-    const hasSubstantiveData = row.some((c, idx) => idx > 0 && c.trim().length > 3 && c.trim() !== '--');
-    if (!hasSlNo && !hasZonePSData && !hasSubstantiveData) continue;
+    // Skip repeated ANNEXURE-I headers (table continuation on new page)
+    if (isAnnexureIHeader(row)) continue;
 
-    // Skip placeholder rows (all cells after col 0 are empty or "--")
-    const dataCells = row.slice(1);
-    const allPlaceholder = dataCells.every(c => !c.trim() || c.trim() === '--');
-    if (allPlaceholder) continue;
+    // Skip rows where ALL data cells are placeholders (empty, --, —, –, NIL)
+    if (!row.some((c, idx) => idx > 0 && !isPlaceholderCell(c))) continue;
+
+    // Skip H-NEW / H-FAST NIL rows — check zone+PS column specifically, not all cells
+    const zonePSForCheck = cell(row, 'zonePS') || (row[1] || '');
+    const viceForCheck = cell(row, 'vice') || (row[2] || '');
+    if (/^\s*H[-\s]*(NEW|FAST)\s*$/i.test(zonePSForCheck.trim()) ||
+        (/\bH[-\s]*(NEW|FAST)\b/i.test(zonePSForCheck) && /\bNIL\b/i.test(viceForCheck))) {
+      console.log(`[PARSER-STRUCTURED] Row ${i}: H-NEW/H-FAST NIL row, skipping`);
+      continue;
+    }
 
     // Extract cell values using dynamic column map
     const colSlNo      = cell(row, 'slNo');
@@ -421,8 +468,11 @@ const ZONE_RE = new RegExp(
       for (const psm of psMatches) {
         let cleaned = psm.replace(/\s+PS\s*$/i, '').trim();
         if (/^(SHO|the|of|to|from|Name|SI|DOR|Cr|U|IPC|BNS|Inspector|Head|Sub)$/i.test(cleaned)) continue;
+        // Strip zone name prefix (e.g. "Rajendranagar Zone Mailardevpally" → "Mailardevpally")
+        cleaned = stripZonePrefix(cleaned);
+        if (!cleaned || cleaned.length < 2) continue;
         if (ZONE_NAMES.some(z => normCompare(cleaned) === normCompare(z))) continue;
-        if (/Zone/i.test(cleaned)) continue;
+        if (/^Zone$/i.test(cleaned)) continue;
         if (cleaned.length > 1 && cleaned.length < 35) {
           policeStation = cleaned;
           break;
@@ -431,13 +481,16 @@ const ZONE_RE = new RegExp(
     }
     // Method 2: Find lines in the zone+PS cell that are PS names (not zone names, "Zone", "Sector")
     if (!policeStation) {
-      const lines = colZonePS.split('\n').map(l => l.trim()).filter(Boolean);
+      const lines = colZonePS.split(/[,\n]+/).map(l => l.replace(/\s*PS\s*$/i, '').trim()).filter(Boolean);
       for (const line of lines) {
-        if (/zone/i.test(line)) continue; // skip any line containing "Zone"
-        if (ZONE_NAMES.some(z => normCompare(line).includes(normCompare(z)) || normCompare(z).includes(normCompare(line)))) continue;
-        if (/sector/i.test(line)) continue;
-        if (line.length > 1 && line.length < 40) {
-          policeStation = line;
+        if (/^zone$/i.test(line)) continue;
+        if (ZONE_NAMES.some(z => normCompare(line) === normCompare(z))) continue;
+        if (/zone/i.test(line) && line.length < 20) continue; // skip short zone lines
+        if (/^Sector/i.test(line)) continue;
+        // Strip zone prefix from line too
+        const stripped = stripZonePrefix(line);
+        if (stripped.length > 1 && stripped.length < 40) {
+          policeStation = stripped;
           break;
         }
       }
@@ -450,9 +503,8 @@ const ZONE_RE = new RegExp(
       }
     }
 
-    let sector = '';
-    const sectorMatch = colZonePS.match(/Sector\s*(\d+)/i);
-    if (sectorMatch) sector = `Sector ${sectorMatch[1]}`;
+    // ── Sector (Roman numeral aware: Sector-III, Sector-1, Sector-I) ──
+    let sector = extractSector(colZonePS);
 
     // ── Social Vice Type ──
     const socialViceType = norm(colVice) || 'None';
@@ -499,23 +551,19 @@ const ZONE_RE = new RegExp(
     // ── Counts ──
     const numAccused = parseInt(colNumAcc) || 0;
     const numCases = parseInt(colNumCases) || 1;
-    const abscondingAccused = colAbsconding.trim() === '--' ? 0 : parseInt(colAbsconding) || 0;
+    const abscondingAccused = isPlaceholderCell(colAbsconding) ? 0 : parseInt(colAbsconding) || 0;
 
     if (!policeStation && !crNo) continue;
+    // Skip if vice is literally NIL (H-NEW/H-FAST summary row with no real case)
+    if (/^\s*NIL\s*$/i.test(colVice) && !crNo) continue;
 
-    // De-duplicate: use crNo + PS + natureOfCase + slNo
-    // Include slNo to allow genuinely different cases at the same PS with same nature
-    const isPlaceholderCr = !crNo || /^_+\/?/.test(crNo);
-    const dupeKey = isPlaceholderCr
-      ? `${(policeStation || '').toLowerCase()}|${(natureOfCase || '').toLowerCase()}`
-      : `${(crNo || '').toLowerCase()}|${(policeStation || '').toLowerCase()}`;
-    if (dupeKey && cases.some(c => {
-      const cIsPlaceholder = !c.crNo || /^_+\/?/.test(c.crNo);
-      const cKey = cIsPlaceholder
-        ? `${(c.policeStation || '').toLowerCase()}|${(c.natureOfCase || '').toLowerCase()}`
-        : `${(c.crNo || '').toLowerCase()}|${(c.policeStation || '').toLowerCase()}`;
-      return cKey === dupeKey;
-    })) continue;
+    // De-duplicate: only for real (non-placeholder) Cr.No matches
+    // Placeholder Cr.No cases at the same PS ARE allowed (e.g. two Gaming Act cases at Gandhi Nagar PS)
+    if (crNo && !/^_+\/?/.test(crNo)) {
+      const dupeKey = `${crNo.toLowerCase()}|${(policeStation || '').toLowerCase()}`;
+      if (cases.some(c => c.crNo && !/^_+\/?/.test(c.crNo) &&
+        `${c.crNo.toLowerCase()}|${(c.policeStation || '').toLowerCase()}` === dupeKey)) continue;
+    }
 
     const extractedLocations = extractLocations(colZonePS + ' ' + colAccused, policeStation);
 
@@ -539,7 +587,11 @@ const ZONE_RE = new RegExp(
   }
 
   // Enrich with Annexure II (brief facts, detailed accused) — use structured rows
+  // This also RECOVERS any cases missed from ANNEXURE-I (page breaks, merged rows, etc.)
   enrichFromAnnexureIIRows(rows, cases);
+
+  // Sort by slNo so recovered cases appear in correct order
+  cases.sort((a, b) => (a.slNo || 0) - (b.slNo || 0));
 
   console.log('[PARSER-STRUCTURED] Total cases parsed:', cases.length);
 
@@ -627,10 +679,12 @@ function parseTableCases(rawText) {
       if (!parsed.numCases) parsed.numCases = c2 === '--' ? 0 : parseInt(c2) || 0;
       if (!parsed.abscondingAccused) parsed.abscondingAccused = c3 === '--' ? 0 : parseInt(c3) || 0;
 
-      // De-duplicate: skip if same crNo + PS already exists (annexure repeats cases)
-      const dupeKey = `${(parsed.crNo || '').toLowerCase()}|${(parsed.policeStation || '').toLowerCase()}`;
-      if (dupeKey !== '|' && cases.some(c => `${(c.crNo || '').toLowerCase()}|${(c.policeStation || '').toLowerCase()}` === dupeKey)) {
-        continue;
+      // De-duplicate: only skip if same real (non-placeholder) crNo + PS already exists
+      if (parsed.crNo && !/^_+\/?/.test(parsed.crNo)) {
+        const dupeKey = `${parsed.crNo.toLowerCase()}|${(parsed.policeStation || '').toLowerCase()}`;
+        if (cases.some(c => c.crNo && `${c.crNo.toLowerCase()}|${(c.policeStation || '').toLowerCase()}` === dupeKey)) {
+          continue;
+        }
       }
 
       console.log(`[PARSER] Case ${parsed.slNo}: zone=${parsed.zone}, PS=${parsed.policeStation}, sector=${parsed.sector}, crNo=${parsed.crNo}`);
@@ -667,10 +721,12 @@ function parseCaseBlock(block, slNo) {
       let cleaned = psm.replace(/\s+PS\s*$/i, '').trim();
       // Skip noise words
       if (/^(SHO|the|of|to|from|Name|SI|DOR|Cr|U|IPC|BNS)$/i.test(cleaned)) continue;
+      // Strip zone name prefix (e.g. "Rajendranagar Zone Mailardevpally" → "Mailardevpally")
+      cleaned = stripZonePrefix(cleaned);
+      if (!cleaned || cleaned.length < 2) continue;
       // Skip zone names that got concatenated
       if (ZONE_NAMES.some(z => normCompare(cleaned) === normCompare(z))) continue;
-      // Skip if contains "Zone" — it's part of the zone header, not a PS name
-      if (/Zone/i.test(cleaned)) continue;
+      if (/^Zone$/i.test(cleaned)) continue;
       // Skip "of PS" patterns (e.g. "Rowdy Sheeter of PS Mirchowk")
       const psIdx = block.indexOf(psm);
       const before = block.slice(Math.max(0, psIdx - 30), psIdx);
@@ -682,11 +738,8 @@ function parseCaseBlock(block, slNo) {
     }
   }
 
-  // Sector: "Sector 1", "Sector 2", etc.
-  const sectorMatch = block.match(/Sector\s*(\d+)/i);
-  if (sectorMatch) {
-    sector = `Sector ${sectorMatch[1]}`;
-  }
+  // Sector: "Sector 1", "Sector-III", "Sector-I", etc. (Roman numeral aware)
+  sector = extractSector(block);
 
   // ─── SOCIAL VICE TYPE ───
   // Appears after the zone/PS/sector block. Common values: None, Gambling, Narcotics, Food Adulteration, etc.
@@ -951,7 +1004,7 @@ function parseCaseBlock(block, slNo) {
  * plus optionally nature-of-case, since Cr.No is often a placeholder (___/2026).
  */
 function enrichFromAnnexureIIRows(rows, cases) {
-  if (!rows.length || !cases.length) return;
+  if (!rows.length) return;
 
   // ── 1. Find the ANNEXURE-II header row ──
   // Look for rows containing "brief facts", "brief description", or structural
@@ -1023,9 +1076,9 @@ function enrichFromAnnexureIIRows(rows, cases) {
   for (let i = annHeaderIdx + 1; i < rows.length; i++) {
     const row = rows[i];
     // Skip rows with very different column count (different table)
-    if (Math.abs(row.length - expectedCols) > 3) continue;
+    if (Math.abs(row.length - expectedCols) > 5) continue;
     // Stop at "Total" summary row — check first cell only, not entire row
-    if (/^\s*total\b/i.test(row[0] || '')) break;
+    if (/^\s*total\b/i.test(row[0] || '')) continue;
     // Skip re-encountering the header row itself
     const joined = row.map(c => c.toLowerCase()).join('|');
     if (joined.includes('brief') && joined.includes('fact') && /s[il]\.?\s*n/i.test(joined)) continue;
@@ -1035,12 +1088,14 @@ function enrichFromAnnexureIIRows(rows, cases) {
       return t.length > 2 && t.length < 60 &&
         /^(s[il]\.?\s*n|zone|nature|accused|action|seiz|abscon|no\.?\s*of|worth|property|crime|vice|i\.?\s*r\.?)/i.test(t);
     });
-    if (headerLikeCells.length >= 4) break;
+    if (headerLikeCells.length >= 6) break;
 
-    // Skip placeholder/empty rows
-    const dataCells = row.slice(1);
-    const allPlaceholder = dataCells.every(c => !c.trim() || c.trim() === '--');
-    if (allPlaceholder) continue;
+    // Skip placeholder/empty rows (handles --, —, –, NIL, etc.)
+    if (!row.some((c, idx) => idx > 0 && !isPlaceholderCell(c))) continue;
+    // Skip H-NEW/H-FAST summary rows
+    const annZoneCellCheck = (zoneCol !== undefined && row[zoneCol]) ? row[zoneCol] : '';
+    const annViceCellCheck = (colMap['vice'] !== undefined && row[colMap['vice']]) ? row[colMap['vice']] : '';
+    if (/\bH[-\s]*(NEW|FAST)\b/i.test(annZoneCellCheck) || /^\s*NIL\s*$/i.test(annViceCellCheck)) continue;
 
     // ── Extract candidate PS names from this ANNEXURE-II row ──
     const candidatePS = [];
@@ -1052,17 +1107,19 @@ function enrichFromAnnexureIIRows(rows, cases) {
         candidatePS.push(firstLine);
       }
     }
-    // Method B: Zone column may contain PS name (e.g. "Charminar\nZone\nChaderghat")
+    // Method B: Zone column may contain PS name (e.g. "Charminar\nZone\nChaderghat" or "Jubilee Hills Zone, Borabanda PS, Sector-I")
     if (zoneCol !== undefined && row[zoneCol]) {
-      const lines = row[zoneCol].split('\n').map(l => l.trim()).filter(Boolean);
-      // PS name is typically the line that is NOT a zone name and NOT "Zone"
+      const lines = row[zoneCol].split(/[,\n]+/).map(l => l.replace(/\s*PS\s*$/i, '').trim()).filter(Boolean);
+      // PS name is the line that is NOT a zone name, NOT just "Zone", NOT a sector
       for (const line of lines) {
         if (/^zone$/i.test(line)) continue;
         if (ZONE_NAMES.some(z => normCompare(line) === normCompare(z))) continue;
-        if (/sector/i.test(line)) continue;
-        if (line.length > 1 && line.length < 50) {
-          if (!candidatePS.some(p => normCompare(p) === normCompare(line))) {
-            candidatePS.push(line);
+        if (/zone/i.test(line) && line.length < 20) continue;
+        if (/^Sector/i.test(line)) continue;
+        const stripped = stripZonePrefix(line);
+        if (stripped.length > 1 && stripped.length < 50) {
+          if (!candidatePS.some(p => normCompare(p) === normCompare(stripped))) {
+            candidatePS.push(stripped);
           }
           break;
         }
@@ -1129,7 +1186,105 @@ function enrichFromAnnexureIIRows(rows, cases) {
     }
 
     if (!matched) {
-      console.log(`[PARSER-ANNII-ROWS] Row ${i}: PS candidates [${candidatePS.join(', ')}] not matched to any case`);
+      // ── RECOVERY: Create missing case from ANNEXURE-II data ──
+      // If ANNEXURE-I parsing missed a case (page breaks, merged rows, etc.),
+      // recover it from ANNEXURE-II which has the same data + brief facts.
+      const annZonePS = (zoneCol !== undefined && row[zoneCol]) ? row[zoneCol] : '';
+      const annVice = (colMap['vice'] !== undefined && row[colMap['vice']]) ? norm(row[colMap['vice']]) : '';
+      const annAction = (colMap['action'] !== undefined && row[colMap['action']]) ? norm(row[colMap['action']]) : '';
+      const annNatureRaw = (colMap['nature'] !== undefined && row[colMap['nature']]) ? norm(row[colMap['nature']]) : '';
+      const annCrDetailsRaw = (crCol !== undefined && row[crCol]) ? row[crCol] : '';
+      const annAccused = (accusedCol !== undefined && row[accusedCol]) ? norm(row[accusedCol]) : '';
+      const annBrief = (briefCol !== undefined && row[briefCol]) ? norm(row[briefCol]) : '';
+      const annAbsRaw = (absCol !== undefined && row[absCol]) ? norm(row[absCol]) : '';
+      const annProp = (propCol !== undefined && row[propCol]) ? norm(row[propCol]) : '';
+      const annWorthRaw = (worthCol !== undefined && row[worthCol]) ? norm(row[worthCol]) : '';
+
+      // Extract zone
+      let newZone = '';
+      const zoneM = annZonePS.match(ZONE_RE);
+      if (zoneM) newZone = zoneM[0].replace(/\s+/g, ' ').trim();
+      if (!newZone) {
+        for (const zn of ZONE_NAMES) {
+          if (new RegExp(zn.replace(/\s+/g, '\\s*'), 'i').test(annZonePS)) { newZone = zn; break; }
+        }
+      }
+
+      // Extract PS (use candidatePS from above, or re-extract)
+      let newPS = candidatePS[0] || '';
+      if (!newPS) {
+        const psM = annZonePS.match(/\b([A-Za-z][A-Za-z0-9 .\-]{1,30}?)\s+PS\b/g);
+        if (psM) {
+          for (const p of psM) {
+            let cl = p.replace(/\s+PS\s*$/i, '').trim();
+            cl = stripZonePrefix(cl);
+            if (cl && cl.length > 1 && !ZONE_NAMES.some(z => normCompare(cl) === normCompare(z))) {
+              newPS = cl; break;
+            }
+          }
+        }
+      }
+
+      // Extract sector
+      const newSector = extractSector(annZonePS);
+
+      // Extract Cr.No, sections, DOR
+      let newCrNo = annCrNo || '';
+      if (!newCrNo) {
+        const crM2 = annCrDetailsRaw.match(/Cr(?:ime)?\.?\s*No\.?\s*[:.\-]?\s*([\d_\s/]+\/\s*\d{2,4})/i);
+        if (crM2) newCrNo = crM2[1].replace(/\s/g, '').replace(/_+/g, '_').trim();
+      }
+      let newSections = '';
+      const secM = annCrDetailsRaw.match(/U\/[sS](?:ec)?\.?\s+([\s\S]+?)(?:[,\s]+(?:DOR|D\.O\.R|dated)\b|\n\s*\n|$)/i);
+      if (secM) newSections = norm(secM[1]).replace(/[,\s]+$/, '');
+      let newDor = '';
+      const dorM = annCrDetailsRaw.match(/(?:D\.?O\.?R\.?|dated)\s*[.:\s]\s*(\d{1,2}[-./]\d{1,2}[-./]\d{2,4})/i);
+      if (dorM) newDor = dorM[1];
+
+      // Sl.No
+      const slM = (colMap['slNo'] !== undefined && row[colMap['slNo']]) ? row[colMap['slNo']].match(/^(\d+)/) : null;
+      const newSlNo = slM ? parseInt(slM[1]) : cases.length + 1;
+
+      // Don't recover if PS is a noise/placeholder word
+      if (newPS && /^(H[-\s]*(NEW|FAST)|NIL|TOTAL|--|\u2014|\u2013)$/i.test(newPS.trim())) newPS = '';
+
+      if (newPS || newCrNo) {
+        // Check not already recovered (de-dup against existing cases)
+        const isDupe = newCrNo && !/^_+\/?/.test(newCrNo) &&
+          cases.some(c => c.crNo && c.crNo.replace(/\s/g, '') === newCrNo);
+        if (!isDupe) {
+          const newCase = {
+            slNo: newSlNo,
+            zone: newZone,
+            policeStation: newPS,
+            sector: newSector,
+            socialViceType: annVice || 'None',
+            actionTakenBy: annAction || 'Task Force',
+            natureOfCase: annNatureRaw,
+            crNo: newCrNo,
+            sections: newSections,
+            dor: newDor,
+            psWithCrDetails: norm(annCrDetailsRaw),
+            accusedParticulars: annAccused,
+            seizedProperty: annProp,
+            seizedWorth: annWorthRaw,
+            numAccused: 1,
+            numCases: 1,
+            abscondingAccused: (annAbsRaw && annAbsRaw !== '--') ? parseInt(annAbsRaw) || 0 : 0,
+            crimeHead: annNatureRaw,
+            accusedDetails: annAccused,
+            briefFacts: annBrief,
+            extractedLocations: extractLocations(annZonePS + ' ' + annAccused, newPS),
+          };
+          cases.push(newCase);
+          enriched++;
+          console.log(`[PARSER-ANNII-ROWS] Row ${i}: RECOVERED missing case #${newSlNo}: PS="${newPS}" zone="${newZone}" sector="${newSector}" crNo="${newCrNo}"`);
+        } else {
+          console.log(`[PARSER-ANNII-ROWS] Row ${i}: PS [${candidatePS.join(', ')}] already exists (dupe crNo=${newCrNo}), skipping`);
+        }
+      } else {
+        console.log(`[PARSER-ANNII-ROWS] Row ${i}: PS [${candidatePS.join(', ')}] not matched and no PS/crNo for recovery`);
+      }
       continue;
     }
 

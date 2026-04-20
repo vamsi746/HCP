@@ -31,5 +31,8 @@ const violationSchema = new (0, _mongoose.Schema)(
 violationSchema.index({ officerId: 1, date: 1 });
 violationSchema.index({ violationType: 1 });
 violationSchema.index({ date: 1 });
+violationSchema.index({ isExempted: 1 });
+violationSchema.index({ severity: 1, date: -1 });
+violationSchema.index({ officerId: 1, violationType: 1, date: -1 });
 
  const Violation = _mongoose2.default.model('Violation', violationSchema); exports.Violation = Violation;

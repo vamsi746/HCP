@@ -25,5 +25,6 @@ appealSchema.index({ officerId: 1 });
 appealSchema.index({ status: 1 });
 appealSchema.index({ slaDeadline: 1 });
 appealSchema.index({ status: 1, slaDeadline: 1 });
+appealSchema.index({ status: 1, submittedAt: -1 });
 
  const Appeal = _mongoose2.default.model('Appeal', appealSchema); exports.Appeal = Appeal;

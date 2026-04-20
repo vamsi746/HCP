@@ -263,7 +263,18 @@ const DSRList = () => {
         className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-300 hover:text-white uppercase tracking-wider transition-colors"
       ><ExternalLink size={12} />{docLoading ? "Loading\u2026" : "View Full Document"}</button><span className="text-[10px] text-white/50">{dsr.fileName}</span></div></div></div></div>{
         /* Cases list */
-      }<div className="ml-10 mr-4 pb-4 space-y-2">{cases.length === 0 ? <div className="relative"><div className="absolute -left-[17px] top-4 w-3 h-px bg-slate-300" /><div className="px-4 py-6 text-center text-gray-400 bg-white border border-slate-200"><Loader2 size={16} className="animate-spin inline mr-2" />
+      }<div className="ml-10 mr-4 pb-4 space-y-2">{
+        /* Column headings */
+      }<div className="flex items-center px-4 py-1.5 gap-4 border-b border-slate-300 bg-slate-200/60">
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-8 shrink-0 text-center">S.No</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-[18%] shrink-0">Zone / PS</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-[10%] shrink-0">Vice Type</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-[8%] shrink-0">Cr. No</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-[16%] shrink-0">SHO</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-[16%] shrink-0">Sector / SI</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider w-[10%] shrink-0">Raided By</span>
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex-1 text-right">Status</span>
+      </div>{cases.length === 0 ? <div className="relative"><div className="absolute -left-[17px] top-4 w-3 h-px bg-slate-300" /><div className="px-4 py-6 text-center text-gray-400 bg-white border border-slate-200"><Loader2 size={16} className="animate-spin inline mr-2" />
                                     Loading cases…
                                   </div></div> : cases.map((c, cIdx) => {
         const matchedOfficer = typeof c.matchedOfficerId === "object" ? c.matchedOfficerId : null;

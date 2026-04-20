@@ -15,5 +15,6 @@ const policeStationSchema = new (0, _mongoose.Schema)(
 );
 policeStationSchema.index({ circleId: 1 });
 policeStationSchema.index({ isActive: 1 });
+policeStationSchema.index({ isActive: 1, name: 1 });
 
  const PoliceStation = _mongoose2.default.model('PoliceStation', policeStationSchema); exports.PoliceStation = PoliceStation;

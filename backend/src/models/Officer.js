@@ -54,6 +54,8 @@ const officerSchema = new _mongoose.Schema(
 officerSchema.index({ rank: 1 });
 officerSchema.index({ isActive: 1 });
 officerSchema.index({ rank: 1, isActive: 1 });
+officerSchema.index({ name: 'text', badgeNumber: 'text' });
+officerSchema.index({ rank: 1, name: 1 });
 
  const Officer = _mongoose2.default.model('Officer', officerSchema); exports.Officer = Officer;
 
