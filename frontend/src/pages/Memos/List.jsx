@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getMemos, deleteMemo, getHierarchy, getMemoCounts, complyMemo, downloadComplianceDocument, updateCompliance, deleteComplianceDocument } from "../../services/endpoints";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { FileText, Trash2, Eye, ChevronLeft, ChevronRight, Filter, RotateCcw, Shield, MapPin, Calendar, X, Download, ChevronDown, Upload, Pencil, MessageSquareText } from "lucide-react";
 import FilterDropdown from "../../components/FilterDropdown";
 import toast from "react-hot-toast";
@@ -26,11 +26,12 @@ const STATUS_CONFIG = {
 const MemoList = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState(() => location.state?.tab || "");
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("tab") ?? location.state?.tab ?? "");
   const [page, setPage] = useState(1);
   const [deleteItem, setDeleteItem] = useState(null);
-  const [complianceSubFilter, setComplianceSubFilter] = useState(() => location.state?.subFilter || "");
+  const [complianceSubFilter, setComplianceSubFilter] = useState(() => searchParams.get("compliance") ?? location.state?.subFilter ?? "");
   const [complianceModal, setComplianceModal] = useState(null);
   const [complianceRemarks, setComplianceRemarks] = useState("");
   const [complianceFile, setComplianceFile] = useState(null);
@@ -40,11 +41,14 @@ const MemoList = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editRemarks, setEditRemarks] = useState("");
   const [replaceFile, setReplaceFile] = useState(null);
-  const [filterZoneId, setFilterZoneId] = useState("");
-  const [filterPsId, setFilterPsId] = useState("");
-  const [filterSector, setFilterSector] = useState("");
-  const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterZoneId, setFilterZoneId] = useState(() => searchParams.get("zoneId") ?? "");
+  const [filterPsId, setFilterPsId] = useState(() => searchParams.get("psId") ?? "");
+  const [filterSector, setFilterSector] = useState(() => searchParams.get("sector") ?? "");
+  const [filterDateFrom, setFilterDateFrom] = useState(() => searchParams.get("from") ?? "");
+  const [filterDateTo, setFilterDateTo] = useState(() => searchParams.get("to") ?? "");
+  const [filterZoneName, setFilterZoneName] = useState(() => searchParams.get("zone") ?? "");
+  const [filterRecipientType, setFilterRecipientType] = useState(() => searchParams.get("recipientType") ?? "");
+  const [filterVice, setFilterVice] = useState(() => searchParams.get("vice") ?? "");
   const { data: hierarchyData } = useQuery({
     queryKey: ["hierarchy"],
     queryFn: async () => {
@@ -97,7 +101,7 @@ const MemoList = () => {
       return true;
     }).sort((a, b) => a.name.localeCompare(b.name, void 0, { numeric: true }));
   }, [allSectors, filterPsId, filterZoneId]);
-  const hasActiveFilters = filterZoneId || filterPsId || filterSector || filterDateFrom || filterDateTo;
+  const hasActiveFilters = filterZoneId || filterPsId || filterSector || filterDateFrom || filterDateTo || filterZoneName || filterRecipientType || filterVice;
   const onZoneChange = (v) => {
     setFilterZoneId(v);
     if (v && filterPsId) {
@@ -124,11 +128,14 @@ const MemoList = () => {
     setFilterSector("");
     setFilterDateFrom("");
     setFilterDateTo("");
+    setFilterZoneName("");
+    setFilterRecipientType("");
+    setFilterVice("");
     setPage(1);
   };
   const isComplianceTab = statusFilter === "__COMPLIANCE__";
   const { data, isLoading } = useQuery({
-    queryKey: ["memos", statusFilter, page, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, complianceSubFilter],
+    queryKey: ["memos", statusFilter, page, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, complianceSubFilter, filterZoneName, filterRecipientType, filterVice],
     queryFn: async () => {
       const params = { page, limit: 20 };
       if (isComplianceTab) {
@@ -142,12 +149,15 @@ const MemoList = () => {
       if (filterSector) params.sector = filterSector;
       if (filterDateFrom) params.dateFrom = filterDateFrom;
       if (filterDateTo) params.dateTo = filterDateTo;
+      if (filterZoneName && !filterZoneId) params.zone = filterZoneName;
+      if (filterRecipientType) params.recipientType = filterRecipientType;
+      if (filterVice) params.viceCategory = filterVice;
       const res = await getMemos(params);
       return res.data;
     }
   });
   const { data: countsData } = useQuery({
-    queryKey: ["memos-counts", filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo],
+    queryKey: ["memos-counts", filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, filterZoneName, filterRecipientType, filterVice],
     queryFn: async () => {
       const params = {};
       if (filterZoneId) params.zoneId = filterZoneId;
@@ -155,6 +165,9 @@ const MemoList = () => {
       if (filterSector) params.sector = filterSector;
       if (filterDateFrom) params.dateFrom = filterDateFrom;
       if (filterDateTo) params.dateTo = filterDateTo;
+      if (filterZoneName && !filterZoneId) params.zone = filterZoneName;
+      if (filterRecipientType) params.recipientType = filterRecipientType;
+      if (filterVice) params.viceCategory = filterVice;
       const res = await getMemoCounts(params);
       return res.data.data;
     }
@@ -271,6 +284,23 @@ const MemoList = () => {
   const memos = data?.data || [];
   const total = data?.pagination?.total || 0;
   const totalPages = Math.ceil(total / 20);
+
+  // Sync URL search params with current filters (so back/forward + share work)
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (statusFilter) next.set("tab", statusFilter);
+    if (complianceSubFilter) next.set("compliance", complianceSubFilter);
+    if (filterZoneId) next.set("zoneId", filterZoneId);
+    if (filterPsId) next.set("psId", filterPsId);
+    if (filterSector) next.set("sector", filterSector);
+    if (filterDateFrom) next.set("from", filterDateFrom);
+    if (filterDateTo) next.set("to", filterDateTo);
+    if (filterZoneName) next.set("zone", filterZoneName);
+    if (filterRecipientType) next.set("recipientType", filterRecipientType);
+    if (filterVice) next.set("vice", filterVice);
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line
+  }, [statusFilter, complianceSubFilter, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, filterZoneName, filterRecipientType, filterVice]);
   return <div>{
     /* Official header */
   }<div className="bg-[#003366] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 mb-4 sm:mb-6 border-b-2 border-[#B8860B]"><h1 className="text-sm font-bold text-white uppercase tracking-wider">Memos & Compliance Register</h1><p className="text-[11px] text-neutral-400 mt-0.5">Hyderabad City Police — Commissioner's Task Force</p></div>{
@@ -332,7 +362,7 @@ const MemoList = () => {
     className="inline-flex items-center gap-1.5 bg-white shadow-[0_1px_3px_rgba(155,44,44,0.12)] border border-[#9B2C2C]/15 text-[#9B2C2C] pl-2.5 pr-3 py-[7px] rounded-lg text-[12px] font-semibold hover:bg-[#9B2C2C]/5 hover:shadow-[0_2px_6px_rgba(155,44,44,0.18)] transition-all"
   ><RotateCcw size={12} />
             Clear All
-          </button>}</div>{
+          </button>}{(filterZoneName || filterRecipientType || filterVice) && <div className="basis-full flex flex-wrap items-center gap-2 mt-1">{filterZoneName && <span className="inline-flex items-center gap-1.5 bg-[#003366]/5 border border-[#003366]/20 text-[#003366] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">Zone: {filterZoneName}<button onClick={() => { setFilterZoneName(""); setPage(1); }} className="hover:text-[#9B2C2C]"><X size={12} /></button></span>}{filterRecipientType && <span className="inline-flex items-center gap-1.5 bg-[#003366]/5 border border-[#003366]/20 text-[#003366] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">Role: {filterRecipientType}<button onClick={() => { setFilterRecipientType(""); setPage(1); }} className="hover:text-[#9B2C2C]"><X size={12} /></button></span>}{filterVice && <span className="inline-flex items-center gap-1.5 bg-[#003366]/5 border border-[#003366]/20 text-[#003366] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">Vice: {filterVice}<button onClick={() => { setFilterVice(""); setPage(1); }} className="hover:text-[#9B2C2C]"><X size={12} /></button></span>}</div>}</div>{
     /* Compliance sub-filter */
   }{isComplianceTab && <div className="flex items-center gap-2 mb-4">{[
     { key: "", label: "All" },

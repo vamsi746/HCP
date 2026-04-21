@@ -11,6 +11,45 @@ var _dsrparser = require('../services/dsr-parser');
 
 const router = _express.Router.call(void 0, );
 
+// ── Vice Category Matcher (mirrors dashboard analytics) ─────────────────────
+// Maps a parsed DSR case to a normalized vice category bucket.
+const VICE_CATEGORY_PATTERNS = {
+  Peta: /peta|animal|cruelty/i,
+  Gambling: /gambl|betting|matka/i,
+  'Food Adulteration': /food|adulterat|edible|oil/i,
+  'Cross Message': /cross.*mess|pamphlet|poster|propag/i,
+  'Hookah Centers': /hookah|shisha|hukka/i,
+  Narcotics: /ndps|ganja|drug|narcotic/i,
+};
+
+function classifyVice(socialViceType, natureOfCase) {
+  const raw = String(socialViceType || natureOfCase || 'Other').toLowerCase();
+  for (const [cat, re] of Object.entries(VICE_CATEGORY_PATTERNS)) {
+    if (re.test(raw)) return cat;
+  }
+  return 'Others';
+}
+
+// Resolve caseIds (Memo.caseId is a String) for a given vice category by
+// scanning DSR.parsedCases. Returns array of caseId strings, or null if no match.
+async function resolveCaseIdsByVice(viceCategory) {
+  const cat = String(viceCategory).trim();
+  if (!cat) return null;
+  const dsrs = await _models.DSR.find(
+    {},
+    { 'parsedCases._id': 1, 'parsedCases.socialViceType': 1, 'parsedCases.natureOfCase': 1 }
+  ).lean();
+  const ids = [];
+  for (const dsr of dsrs) {
+    for (const pc of dsr.parsedCases || []) {
+      if (classifyVice(pc.socialViceType, pc.natureOfCase) === cat) {
+        ids.push(String(pc._id));
+      }
+    }
+  }
+  return ids;
+}
+
 // ── Template Generation ──────────────────────────────────────────────────────
 
 
@@ -354,7 +393,7 @@ router.get('/case-officers/:psId', _auth.authenticate, async (req, res) => {
 
 router.get('/', _auth.authenticate, async (req, res) => {
   try {
-    const { status, dsrId, page = '1', limit = '20', zoneId, psId, dateFrom, dateTo, sector, complianceView, complianceStatus: csFilter } = req.query;
+    const { status, dsrId, page = '1', limit = '20', zoneId, zone, psId, dateFrom, dateTo, sector, complianceView, complianceStatus: csFilter, recipientType, viceCategory } = req.query;
     const filter = {};
     if (complianceView) {
       filter.status = { $in: ['APPROVED', 'SENT'] };
@@ -372,7 +411,24 @@ router.get('/', _auth.authenticate, async (req, res) => {
     }
     if (dsrId) filter.dsrId = dsrId;
     if (zoneId) filter.zoneId = zoneId;
+    if (zone && !zoneId) {
+      // Match by Memo.zone (string, no " Zone" suffix)
+      const cleanZone = String(zone).replace(/\s*Zone\s*$/i, '').trim();
+      filter.zone = new RegExp(`^${cleanZone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    }
     if (psId) filter.psId = psId;
+    if (recipientType) {
+      if (recipientType === 'UNASSIGNED') {
+        filter.$or = [
+          ...(filter.$or || []),
+          { recipientType: { $exists: false } },
+          { recipientType: '' },
+          { recipientType: null },
+        ];
+      } else {
+        filter.recipientType = recipientType;
+      }
+    }
     if (dateFrom || dateTo) {
       filter.date = {};
       if (dateFrom) filter.date.$gte = new Date(dateFrom );
@@ -400,6 +456,20 @@ router.get('/', _auth.authenticate, async (req, res) => {
       if (validCaseIds.length > 0) {
         filter.caseId = { $in: validCaseIds };
       } else {
+        return res.json({ data: [], pagination: { page: parseInt(page ), limit: parseInt(limit ), total: 0 } });
+      }
+    }
+
+    // Vice category filter: socialViceType/natureOfCase live in DSR.parsedCases
+    if (viceCategory) {
+      const ids = await resolveCaseIdsByVice(viceCategory);
+      if (!ids || ids.length === 0) {
+        return res.json({ data: [], pagination: { page: parseInt(page ), limit: parseInt(limit ), total: 0 } });
+      }
+      filter.caseId = filter.caseId
+        ? { $in: filter.caseId.$in.filter((x) => ids.includes(x)) }
+        : { $in: ids };
+      if (filter.caseId.$in.length === 0) {
         return res.json({ data: [], pagination: { page: parseInt(page ), limit: parseInt(limit ), total: 0 } });
       }
     }
@@ -468,10 +538,25 @@ router.get('/', _auth.authenticate, async (req, res) => {
 
 router.get('/counts', _auth.authenticate, async (req, res) => {
   try {
-    const { zoneId, psId, dateFrom, dateTo, sector } = req.query;
+    const { zoneId, zone, psId, dateFrom, dateTo, sector, recipientType, viceCategory } = req.query;
     const filter = {};
     if (zoneId) filter.zoneId = new _mongoose2.default.Types.ObjectId(zoneId );
+    if (zone && !zoneId) {
+      const cleanZone = String(zone).replace(/\s*Zone\s*$/i, '').trim();
+      filter.zone = new RegExp(`^${cleanZone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    }
     if (psId) filter.psId = new _mongoose2.default.Types.ObjectId(psId );
+    if (recipientType) {
+      if (recipientType === 'UNASSIGNED') {
+        filter.$or = [
+          { recipientType: { $exists: false } },
+          { recipientType: '' },
+          { recipientType: null },
+        ];
+      } else {
+        filter.recipientType = recipientType;
+      }
+    }
     if (dateFrom || dateTo) {
       filter.date = {};
       if (dateFrom) filter.date.$gte = new Date(dateFrom );
@@ -500,6 +585,20 @@ router.get('/counts', _auth.authenticate, async (req, res) => {
       if (validCaseIds.length > 0) {
         filter.caseId = { $in: validCaseIds };
       } else {
+        return res.json({ data: {} });
+      }
+    }
+
+    // Vice category filter
+    if (viceCategory) {
+      const ids = await resolveCaseIdsByVice(viceCategory);
+      if (!ids || ids.length === 0) {
+        return res.json({ data: {} });
+      }
+      filter.caseId = filter.caseId
+        ? { $in: filter.caseId.$in.filter((x) => ids.includes(x)) }
+        : { $in: ids };
+      if (filter.caseId.$in.length === 0) {
         return res.json({ data: {} });
       }
     }

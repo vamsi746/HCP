@@ -264,17 +264,35 @@ router.get('/dashboard-analytics', _auth.authenticate, async (req, res) => {
       return result;
     })();
 
-    // ─── 6. Compliance trend (last 30 days) ─────────────────────────
-    const trendStart = new Date();
-    trendStart.setDate(trendStart.getDate() - 29);
-    trendStart.setHours(0, 0, 0, 0);
+    // ─── 6. Compliance trend ────────────────────────────────────────
+    // Respects dateFrom/dateTo if provided; otherwise defaults to last 30 days.
+    let trendStart;
+    let trendEnd;
+    let trendDays;
+    if (dateFrom || dateTo) {
+      trendStart = dateFrom ? new Date(dateFrom) : new Date();
+      trendStart.setHours(0, 0, 0, 0);
+      trendEnd = dateTo ? new Date(dateTo) : new Date();
+      trendEnd.setHours(23, 59, 59, 999);
+      trendDays = Math.max(
+        1,
+        Math.min(366, Math.ceil((trendEnd.getTime() - trendStart.getTime()) / 86400000) + 1)
+      );
+    } else {
+      trendEnd = new Date();
+      trendEnd.setHours(23, 59, 59, 999);
+      trendStart = new Date();
+      trendStart.setDate(trendStart.getDate() - 29);
+      trendStart.setHours(0, 0, 0, 0);
+      trendDays = 30;
+    }
 
     const trendAgg = await _models.Memo.aggregate([
       {
         $match: {
           ...(zoneId ? { zoneId } : {}),
           status: { $in: ['APPROVED', 'SENT'] },
-          approvedAt: { $gte: trendStart },
+          approvedAt: { $gte: trendStart, $lte: trendEnd },
         },
       },
       {
@@ -293,7 +311,7 @@ router.get('/dashboard-analytics', _auth.authenticate, async (req, res) => {
     const trendMap = new Map();
     for (const r of trendAgg) trendMap.set(r._id, { issued: r.issued, complied: r.complied });
     const complianceTrend = [];
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < trendDays; i++) {
       const d = new Date(trendStart);
       d.setDate(d.getDate() + i);
       const key = d.toISOString().slice(0, 10);

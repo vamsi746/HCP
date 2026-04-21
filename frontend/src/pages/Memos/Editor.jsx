@@ -164,11 +164,11 @@ const MemoEditorPage = () => {
     onClick={() => saveMutation.mutate()}
     disabled={!hasChanges || saveMutation.isPending}
     className="flex items-center gap-1.5 px-4 py-1.5 bg-white/10 border border-white/20 text-white text-xs font-bold uppercase tracking-wider hover:bg-white/20 disabled:opacity-40 transition"
-  ><Save size={13} />{saveMutation.isPending ? "Saving\u2026" : "Save Draft"}</button><button
+  ><Save size={13} />{saveMutation.isPending ? "Saving\u2026" : "Save Draft"}</button>{data.status === "DRAFT" && <button
     onClick={() => submitMutation.mutate()}
     disabled={submitMutation.isPending}
     className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white text-xs font-bold uppercase tracking-wider hover:bg-indigo-700 disabled:opacity-50 transition"
-  ><Send size={13} />{submitMutation.isPending ? "Submitting\u2026" : "Submit for Review"}</button></>}</div></div>{
+  ><Send size={13} />{submitMutation.isPending ? "Submitting\u2026" : "Submit for Review"}</button>}</>}</div></div>{
     /* Unsaved changes banner */
   }{hasChanges && editable && <div className="-mx-6 bg-amber-50 border-b border-amber-300 px-5 py-2.5 flex items-center gap-2 text-xs font-semibold text-amber-800"><div className="w-1.5 h-1.5 bg-amber-500 animate-pulse" />
           You have unsaved changes. Save draft before leaving this page.

@@ -95,5 +95,8 @@ memoSchema.index({ date: -1 });
 memoSchema.index({ status: 1, complianceStatus: 1, createdAt: -1 });
 memoSchema.index({ approvedAt: -1 });
 memoSchema.index({ zoneId: 1, date: -1 });
+memoSchema.index({ recipientType: 1, status: 1, date: -1 });
+memoSchema.index({ caseId: 1, status: 1 });
+memoSchema.index({ zone: 1, date: -1 });
 
  const Memo = _mongoose2.default.model('Memo', memoSchema); exports.Memo = Memo;
