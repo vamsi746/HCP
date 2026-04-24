@@ -3,11 +3,12 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getMemos, getMemo, approveMemo, holdMemo, rejectMemo, assignMemoRecipient, getCaseOfficers, getHierarchy, getMemoCounts, getDSRCaseRows, downloadComplianceDocument } from "../services/endpoints";
 import MemoEditor from "../components/MemoEditor";
 import FilterDropdown from "../components/FilterDropdown";
-import { CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, Maximize2, Filter, RotateCcw, Minimize2, Columns2, FileSpreadsheet, ZoomIn, ZoomOut, Scan, Eye, Download, BookOpen } from "lucide-react";
+import { CheckCircle2, UserCheck, ArrowLeft, Loader2, FileText, X, Clock, Ban, MapPin, Calendar, Shield, Maximize2, Filter, RotateCcw, Minimize2, Columns2, FileSpreadsheet, ZoomIn, ZoomOut, Scan, Eye, Download, BookOpen, Gavel } from "lucide-react";
 import toast from "react-hot-toast";
 import { format } from "date-fns";
 import MemoPrintButton from "../components/MemoPrintButton";
 import { renderAsync } from "docx-preview";
+import { OfficerDetailPanel } from "./OfficerTracker";
 const TABS = [
   { key: "PENDING_REVIEW", label: "Pending" },
   { key: "APPROVED,ON_HOLD,REJECTED", label: "Reviewed" },
@@ -56,6 +57,7 @@ const Review = () => {
   const [filterSector, setFilterSector] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+  const [officerTrackingMemo, setOfficerTrackingMemo] = useState(null);
   const { data: hierarchyData } = useQuery({
     queryKey: ["hierarchy"],
     queryFn: async () => {
@@ -191,6 +193,24 @@ const Review = () => {
     setPanelMode("split");
     setRightPanelView("details");
     setCaseRowsHtml("");
+    setOfficerTrackingMemo(null);
+  }, []);
+  const openOfficerTracking = useCallback((memo) => {
+    const recipientId = typeof memo.recipientId === "object" ? memo.recipientId._id : memo.recipientId;
+    const officerObj = {
+      officerId: recipientId,
+      name: memo.recipientName || "Unknown",
+      rank: memo.recipientId?.rank || "SI",
+      policeStation: memo.policeStation || "\u2014",
+      sector: memo.caseDetails?.sector || "\u2014",
+      zone: memo.zone || "\u2014",
+      memoCount: 3
+    };
+    setOfficerTrackingMemo(officerObj);
+    setCasePopup(memo);
+    setPanelMode("split");
+    setRightPanelView("details");
+    setCaseRowsHtml("");
   }, []);
   const minimizePanel = useCallback(() => {
     const cx = window.innerWidth - popupSize.width - 24;
@@ -206,6 +226,7 @@ const Review = () => {
     setCasePopup(null);
     setRightPanelView("details");
     setCaseRowsHtml("");
+    setOfficerTrackingMemo(null);
   }, []);
   const toggleDocumentView = useCallback((memo) => {
     if (rightPanelView === "document") {
@@ -545,14 +566,14 @@ const Review = () => {
     /* Case info */
   }<div className="border border-[#D9DEE4] bg-white px-4 py-3 rounded-sm space-y-2"><p className="text-[11px] font-bold text-[#003366] uppercase tracking-wider">Case Info</p><div className="grid grid-cols-2 gap-2 text-[12px]"><div><span className="text-slate-400">PS</span> <span className="ml-2 font-bold text-slate-700">{memo.policeStation || "\u2014"}</span></div><div><span className="text-slate-400">SHO</span> <span className="ml-2 font-bold text-slate-700">{memo.caseDetails?.sho?.name || "\u2014"}</span></div><div><span className="text-slate-400">Sector</span> <span className="ml-2 font-bold text-slate-700">{memo.caseDetails?.sector || "\u2014"}</span></div><div><span className="text-slate-400">SI</span> <span className="ml-2 font-bold text-slate-700">{memo.caseDetails?.si?.name || "\u2014"}</span></div><div><span className="text-slate-400">Date</span> <span className="ml-2 font-bold text-slate-700">{memo.raidedDate ? format(new Date(memo.raidedDate), "dd MMM yyyy") : format(new Date(memo.date), "dd MMM yyyy")}</span></div></div></div></div>;
   const renderPanelHeader = (memo, mode) => <div
-    className={`bg-[#003366] px-5 py-3 flex items-center justify-between flex-shrink-0 border-b-2 border-[#B8860B] ${mode === "popup" ? "cursor-move select-none rounded-t-sm" : ""}`}
+    className={`${officerTrackingMemo ? "bg-[#7f1d1d]" : "bg-[#003366]"} px-5 py-3 flex items-center justify-between flex-shrink-0 border-b-2 border-[#B8860B] ${mode === "popup" ? "cursor-move select-none rounded-t-sm" : ""}`}
     onMouseDown={mode === "popup" ? onDragStart : void 0}
-  ><h2 className="text-sm font-bold text-white uppercase tracking-wider truncate mr-2">{memo.zone || "Unknown"} Zone — Cr.No. {memo.crimeNo || "\u2014"}</h2><div className="flex items-center gap-1.5 flex-shrink-0"><button
+  >{officerTrackingMemo ? <div className="flex items-center gap-2 min-w-0"><Gavel size={14} className="text-white flex-shrink-0" /><h2 className="text-sm font-bold text-white uppercase tracking-wider truncate mr-2">Officer Tracking — {memo.recipientName || "\u2014"}</h2></div> : <h2 className="text-sm font-bold text-white uppercase tracking-wider truncate mr-2">{memo.zone || "Unknown"} Zone — Cr.No. {memo.crimeNo || "\u2014"}</h2>}<div className="flex items-center gap-1.5 flex-shrink-0">{!officerTrackingMemo && <button
     onClick={() => toggleDocumentView(memo)}
     className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition border bg-white/10 text-white/90 border-white/20 hover:bg-white/20 hover:text-white"
     title={rightPanelView === "document" ? "Show extracted details" : "Show case rows from DSR"}
     onMouseDown={(e) => e.stopPropagation()}
-  ><FileSpreadsheet size={12} />{rightPanelView === "document" ? "Details" : "DSR"}</button>{mode === "split" && <button onClick={minimizePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Minimize to popup" onMouseDown={(e) => e.stopPropagation()}><Minimize2 size={14} /></button>}{mode === "popup" && <button onClick={maximizePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Maximize to split screen" onMouseDown={(e) => e.stopPropagation()}><Columns2 size={14} /></button>}<button onClick={closePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Close" onMouseDown={(e) => e.stopPropagation()}><X size={16} /></button></div></div>;
+  ><FileSpreadsheet size={12} />{rightPanelView === "document" ? "Details" : "DSR"}</button>}{mode === "split" && <button onClick={minimizePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Minimize to popup" onMouseDown={(e) => e.stopPropagation()}><Minimize2 size={14} /></button>}{mode === "popup" && <button onClick={maximizePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Maximize to split screen" onMouseDown={(e) => e.stopPropagation()}><Columns2 size={14} /></button>}<button onClick={closePanel} className="text-white/50 hover:text-white p-0.5 transition" title="Close" onMouseDown={(e) => e.stopPropagation()}><X size={16} /></button></div></div>;
   const renderDocumentView = () => <div className="flex-1 flex flex-col min-w-0 min-h-0">{
     /* Zoom toolbar */
   }<div className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 border-b border-slate-200 shrink-0"><button onClick={() => setDocZoom((z) => Math.max(0.25, +(z - 0.1).toFixed(1)))} className="p-1 rounded hover:bg-slate-200 text-slate-600" title="Zoom out"><ZoomOut size={15} /></button><span className="text-[11px] font-medium text-slate-500 w-10 text-center select-none">{Math.round(docZoom * 100)}%</span><button onClick={() => setDocZoom((z) => Math.min(2, +(z + 0.1).toFixed(1)))} className="p-1 rounded hover:bg-slate-200 text-slate-600" title="Zoom in"><ZoomIn size={15} /></button><button onClick={() => setDocZoom(0.5)} className="p-1 rounded hover:bg-slate-200 text-slate-600 ml-1" title="Fit width"><Scan size={15} /></button></div>{
@@ -567,14 +588,27 @@ const Review = () => {
               .dsr-case-rows-view table td, .dsr-case-rows-view table th { border: 1px solid #333; padding: 4px 6px; vertical-align: top; }
               .dsr-case-rows-view table tr:first-child td, .dsr-case-rows-view table tr:first-child th { background: #f3f4f6; font-weight: bold; }
             `}</style><div dangerouslySetInnerHTML={{ __html: caseRowsHtml }} /></div>}</div></div>;
-  const renderRightPanelBody = (memo) => <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"><div style={{ display: rightPanelView === "details" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>{renderCaseDetailBody(memo)}</div><div style={{ display: rightPanelView === "document" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>{renderDocumentView()}</div></div>;
+  const renderRightPanelBody = (memo) => {
+    if (officerTrackingMemo) {
+      return <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"><OfficerDetailPanel
+        officer={officerTrackingMemo}
+        onClose={closePanel}
+        onViewMemo={(memoId) => {
+          closePanel();
+          const target = { _id: memoId };
+          openDetail(target);
+        }}
+      /></div>;
+    }
+    return <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden"><div style={{ display: rightPanelView === "details" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0 }}>{renderCaseDetailBody(memo)}</div><div style={{ display: rightPanelView === "document" ? "flex" : "none", flexDirection: "column", flex: 1, minHeight: 0, minWidth: 0 }}>{renderDocumentView()}</div></div>;
+  };
   const renderSplitPanel = () => null;
   const renderFloatingPopup = () => {
     if (panelMode !== "popup" || !casePopup) return null;
     return <div
       className="fixed bg-white border border-[#D9DEE4] shadow-2xl flex flex-col rounded-sm z-50"
       style={{ left: popupPos.x, top: popupPos.y, width: popupSize.width, height: popupSize.height, maxWidth: "90vw", maxHeight: "calc(100vh - 100px)" }}
-    >{renderPanelHeader(casePopup, "popup")}{renderRightPanelBody(casePopup)}{
+    >{!officerTrackingMemo && renderPanelHeader(casePopup, "popup")}{renderRightPanelBody(casePopup)}{
       /* Resize edges & corners */
     }<div onMouseDown={onResizeStart("t")} className="absolute top-0 left-2 right-2 h-1 cursor-n-resize" /><div onMouseDown={onResizeStart("b")} className="absolute bottom-0 left-2 right-2 h-1 cursor-s-resize" /><div onMouseDown={onResizeStart("l")} className="absolute left-0 top-2 bottom-2 w-1 cursor-w-resize" /><div onMouseDown={onResizeStart("r")} className="absolute right-0 top-2 bottom-2 w-1 cursor-e-resize" /><div onMouseDown={onResizeStart("tl")} className="absolute top-0 left-0 w-2 h-2 cursor-nw-resize" /><div onMouseDown={onResizeStart("tr")} className="absolute top-0 right-0 w-2 h-2 cursor-ne-resize" /><div onMouseDown={onResizeStart("bl")} className="absolute bottom-0 left-0 w-2 h-2 cursor-sw-resize" /><div onMouseDown={onResizeStart("br")} className="absolute bottom-0 right-0 w-2 h-2 cursor-se-resize" /></div>;
   };
@@ -623,17 +657,18 @@ const Review = () => {
       setComplianceDocBlob(null);
       setComplianceDocName("");
     };
+    const isDetailChargeMemo = memoDetail.memoType === "CHARGE";
     const leftContent = <div className="flex flex-col h-full bg-[#F4F5F7] overflow-hidden">{
       /* Header bar */
-    }<div className="bg-[#003366] px-5 py-3 flex items-center justify-between border-b-2 border-[#B8860B] flex-shrink-0 z-10"><div className="flex items-center gap-3 min-w-0"><button onClick={isComplianceSplit ? closeComplianceView : () => {
+    }<div className={`${isDetailChargeMemo ? "bg-[#7f1d1d]" : "bg-[#003366]"} px-5 py-3 flex items-center justify-between border-b-2 border-[#B8860B] flex-shrink-0 z-10`}><div className="flex items-center gap-3 min-w-0"><button onClick={isComplianceSplit ? closeComplianceView : () => {
       setSelectedId(null);
       setMemoDetail(null);
       closePanel();
-    }} className="p-1.5 hover:bg-white/10 text-white/70 hover:text-white transition flex-shrink-0"><ArrowLeft size={18} /></button><div className="min-w-0"><div className="flex items-center gap-3 flex-wrap"><h1 className="text-sm font-bold text-white uppercase tracking-wider truncate">{memoDetail.policeStation || "Unknown"} PS — Cr.No. {memoDetail.crimeNo || "\u2014"}</h1><span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-sm flex-shrink-0 ${memoDetail.status === "PENDING_REVIEW" ? "bg-amber-500 text-white" : memoDetail.status === "REVIEWED" ? "bg-[#1B6B46] text-white" : memoDetail.status === "ON_HOLD" ? "bg-[#A66914] text-white" : memoDetail.status === "REJECTED" ? "bg-[#9B2C2C] text-white" : "bg-[#1B6B46] text-white"}`}>{memoDetail.status === "PENDING_REVIEW" ? "PENDING" : memoDetail.status === "APPROVED" ? "APPROVED" : memoDetail.status === "ON_HOLD" ? "ON HOLD" : memoDetail.status}</span></div><p className="text-[11px] text-neutral-400 mt-0.5 truncate">{memoDetail.reference}</p></div></div><div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">{panelMode === "hidden" && <button
-      onClick={() => openCasePopup(memoDetail)}
+    }} className="p-1.5 hover:bg-white/10 text-white/70 hover:text-white transition flex-shrink-0"><ArrowLeft size={18} /></button><div className="min-w-0"><div className="flex items-center gap-3 flex-wrap">{isDetailChargeMemo && <Gavel size={14} className="text-white flex-shrink-0" />}<h1 className="text-sm font-bold text-white uppercase tracking-wider truncate">{isDetailChargeMemo ? `Charge Memo — ${memoDetail.recipientName || "Unknown"}` : `${memoDetail.policeStation || "Unknown"} PS — Cr.No. ${memoDetail.crimeNo || "\u2014"}`}</h1><span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-sm flex-shrink-0 ${memoDetail.status === "PENDING_REVIEW" ? "bg-amber-500 text-white" : memoDetail.status === "REVIEWED" ? "bg-[#1B6B46] text-white" : memoDetail.status === "ON_HOLD" ? "bg-[#A66914] text-white" : memoDetail.status === "REJECTED" ? "bg-[#9B2C2C] text-white" : "bg-[#1B6B46] text-white"}`}>{memoDetail.status === "PENDING_REVIEW" ? "PENDING" : memoDetail.status === "APPROVED" ? "APPROVED" : memoDetail.status === "ON_HOLD" ? "ON HOLD" : memoDetail.status}</span></div><p className="text-[11px] text-neutral-400 mt-0.5 truncate">{isDetailChargeMemo ? `${memoDetail.policeStation || ""} PS · ${memoDetail.zone || ""} Zone` : memoDetail.reference}</p></div></div><div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">        {panelMode === "hidden" && <button
+      onClick={() => isDetailChargeMemo ? openOfficerTracking(memoDetail) : openCasePopup(memoDetail)}
       className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 text-white border border-white/20 text-xs font-bold uppercase tracking-wider hover:bg-white/20 transition rounded-sm"
     ><Columns2 size={13} />
-                Case Details
+                {isDetailChargeMemo ? "Officer Details" : "Case Details"}
               </button>}<MemoPrintButton
       content={memoDetail.content}
       title={`Memo - ${memoDetail.policeStation} PS - Cr.No. ${memoDetail.crimeNo}`}
@@ -690,7 +725,7 @@ const Review = () => {
       onMouseDown={onSplitDragStart}
     ><div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[3px] h-10 rounded-full bg-[#A0AEC0] group-hover:bg-white group-active:bg-white transition-colors" /></div>{
       /* Right panel */
-    }<div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>{renderPanelHeader(casePopup, "split")}{renderRightPanelBody(casePopup)}</div></div> : <div className="-m-3 sm:-m-4 md:-m-6 overflow-hidden w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: "calc(100vh - 80px - 82px)" }}>{leftContent}</div>}{
+    }<div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>{!officerTrackingMemo && renderPanelHeader(casePopup, "split")}{renderRightPanelBody(casePopup)}</div></div> : <div className="-m-3 sm:-m-4 md:-m-6 overflow-hidden w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: "calc(100vh - 80px - 82px)" }}>{leftContent}</div>}{
       /* Modals & panels */
     }{renderAssignModal()}{renderDialog()}{renderFloatingPopup()}</>;
   }
@@ -747,17 +782,23 @@ const Review = () => {
     const isActive = casePopup?._id === memo._id;
     return <div key={memo._id} className={`bg-white border-2 rounded-sm transition-all duration-200 ${isActive ? "border-[#003366] shadow-[0_0_16px_rgba(0,51,102,0.35)] scale-[1.02]" : "border-[#D9DEE4] shadow-sm hover:shadow-md hover:border-[#003366]/30"}`}>{
       /* Card header */
-    }<div className="bg-[#003366] px-3 py-2 flex items-center justify-between rounded-t-sm"><div className="flex items-center gap-1.5 min-w-0"><span className="text-[11px] font-bold text-white uppercase tracking-wider truncate">{memo.zone || "Unknown"} Zone
+    }<div className={`${memo.memoType === "CHARGE" ? "bg-[#7f1d1d]" : "bg-[#003366]"} px-3 py-2 flex items-center justify-between rounded-t-sm`}><div className="flex items-center gap-1.5 min-w-0">{memo.memoType === "CHARGE" && <Gavel size={11} className="text-white flex-shrink-0" />}<span className="text-[11px] font-bold text-white uppercase tracking-wider truncate">{memo.memoType === "CHARGE" ? "Charge Memo" : `${memo.zone || "Unknown"} Zone`}
                     </span></div><span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 flex-shrink-0 rounded-sm ${isCompliedTab ? "bg-emerald-700 text-white" : memo.status === "PENDING_REVIEW" ? "bg-amber-500 text-white" : memo.status === "REVIEWED" ? "bg-[#1B6B46] text-white" : memo.status === "ON_HOLD" ? "bg-[#A66914] text-white" : memo.status === "REJECTED" ? "bg-[#9B2C2C] text-white" : "bg-[#1B6B46] text-white"}`}>{isCompliedTab ? "COMPLIED" : memo.status === "PENDING_REVIEW" ? "PENDING" : memo.status === "ON_HOLD" ? "ON HOLD" : memo.status}</span></div>{
       /* Card body — Case details */
-    }<div className="flex flex-col bg-[#F0F2F5]" style={{ height: 280 }}><div className="flex-shrink-0 px-3 pt-2"><p className="text-[11px] font-bold text-[#003366] uppercase tracking-wider mb-1 border-b border-[#003366]/20 pb-1">Case Details</p></div><div className="flex-1 min-h-0 overflow-y-auto px-3 pb-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#d4d4d4 transparent" }}><table className="w-full text-[13px] border-collapse"><tbody>{[
+    }<div className="flex flex-col bg-[#F0F2F5]" style={{ height: 280 }}><div className="flex-shrink-0 px-3 pt-2"><p className="text-[11px] font-bold text-[#003366] uppercase tracking-wider mb-1 border-b border-[#003366]/20 pb-1">{memo.memoType === "CHARGE" ? "Charge Memo Details" : "Case Details"}</p></div><div className="flex-1 min-h-0 overflow-y-auto px-3 pb-1" style={{ scrollbarWidth: "thin", scrollbarColor: "#d4d4d4 transparent" }}><table className="w-full text-[13px] border-collapse"><tbody>{(memo.memoType === "CHARGE" ? [
+      ["Officer", memo.recipientName || "—"],
+      ["Desig.", memo.recipientDesignation || "—"],
+      ["Date", format(new Date(memo.date), "dd MMM yyyy")],
+      ["Zone", memo.zone || "—"],
+      ["PS", memo.policeStation || "—"]
+    ] : [
       ["Cr.No", memo.crimeNo || "\u2014"],
       ["Date", memo.raidedDate ? format(new Date(memo.raidedDate), "dd MMM yyyy") : format(new Date(memo.date), "dd MMM yyyy")],
       ["Nature", memo.caseDetails?.natureOfCase || "\u2014"],
       ["Zone", memo.zone || "\u2014"],
       ["PS", memo.policeStation || "\u2014"],
       ["Sector", memo.caseDetails?.sector || "\u2014"]
-    ].map(([k, v]) => <tr key={k} className="border-b border-neutral-200 last:border-0"><td className="font-semibold py-1.5 pr-1 whitespace-nowrap align-top text-[#4A5568]" style={{ width: "60px" }}>{k}</td><td className="py-1.5 align-top text-[#A0AEC0]" style={{ width: "10px" }}>:</td><td className="py-1.5 pl-1.5 font-bold text-[#1C2334]">{v}</td></tr>)}</tbody></table></div><div className="flex-shrink-0 flex items-center border-t border-[#D9DEE4] w-full">{isCompliedTab ? <><button
+    ]).map(([k, v]) => <tr key={k} className="border-b border-neutral-200 last:border-0"><td className="font-semibold py-1.5 pr-1 whitespace-nowrap align-top text-[#4A5568]" style={{ width: "60px" }}>{k}</td><td className="py-1.5 align-top text-[#A0AEC0]" style={{ width: "10px" }}>:</td><td className="py-1.5 pl-1.5 font-bold text-[#1C2334]">{v}</td></tr>)}</tbody></table></div><div className="flex-shrink-0 flex items-center border-t border-[#D9DEE4] w-full">{isCompliedTab ? <><button
       onClick={() => openDetail(memo)}
       className="flex-1 flex items-center justify-center gap-1.5 text-[11px] text-[#003366] font-bold uppercase tracking-wider px-2 py-2.5 hover:bg-[#EBF0F5] transition border-r border-[#D9DEE4]"
     ><Eye size={12} className="flex-shrink-0" />
@@ -779,12 +820,14 @@ const Review = () => {
                         </button><button
       onClick={(e) => {
         e.stopPropagation();
-        openCasePopup(memo);
+        if (memo.memoType === "CHARGE") {
+          openOfficerTracking(memo);
+        } else {
+          openCasePopup(memo);
+        }
       }}
-      className="flex-1 flex items-center justify-center gap-1 text-[10px] text-[#003366] font-bold hover:text-[#004480] hover:bg-[#EBF0F5] px-3 py-2.5 transition"
-    ><Maximize2 size={10} />
-                          View Full Details
-                        </button></>}</div></div></div>;
+      className={`flex-1 flex items-center justify-center gap-1 text-[10px] font-bold px-3 py-2.5 transition ${memo.memoType === "CHARGE" ? "text-[#7f1d1d] hover:text-[#5a1414] hover:bg-[#7f1d1d]/5" : "text-[#003366] hover:text-[#004480] hover:bg-[#EBF0F5]"}`}
+    >{memo.memoType === "CHARGE" ? <><Gavel size={10} /> Officer History</> : <><Maximize2 size={10} /> View Full Details</>}</button></>}</div></div></div>;
   })}</div>}</div></div>;
   return <>{isSplitList ? <div ref={splitContainerRef} className="flex -m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: "calc(100vh - 80px - 82px)" }}>{
     /* Left panel */
@@ -795,7 +838,7 @@ const Review = () => {
     onMouseDown={onSplitDragStart}
   ><div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-[3px] h-10 rounded-full bg-[#A0AEC0] group-hover:bg-white group-active:bg-white transition-colors" /></div>{
     /* Right panel */
-  }<div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>{renderPanelHeader(casePopup, "split")}{renderRightPanelBody(casePopup)}</div></div> : <div className="-m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: "calc(100vh - 80px - 82px)" }}>{listContent}</div>}{
+  }<div className="h-full flex flex-col min-w-0" style={{ width: `${100 - splitPercent}%` }}>{!officerTrackingMemo && renderPanelHeader(casePopup, "split")}{renderRightPanelBody(casePopup)}</div></div> : <div className="-m-3 sm:-m-4 md:-m-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)]" style={{ height: "calc(100vh - 80px - 82px)" }}>{listContent}</div>}{
     /* Modals */
   }{renderDialog()}{renderFloatingPopup()}{
     /* Compliance document preview modal */

@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getMemos, deleteMemo, getHierarchy, getMemoCounts, complyMemo, downloadComplianceDocument, updateCompliance, deleteComplianceDocument } from "../../services/endpoints";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import { FileText, Trash2, Eye, ChevronLeft, ChevronRight, Filter, RotateCcw, Shield, MapPin, Calendar, X, Download, ChevronDown, Upload, Pencil, MessageSquareText } from "lucide-react";
+import { FileText, Trash2, Eye, ChevronLeft, ChevronRight, Filter, RotateCcw, Shield, MapPin, Calendar, X, Download, ChevronDown, Upload, Pencil, MessageSquareText, Gavel } from "lucide-react";
 import FilterDropdown from "../../components/FilterDropdown";
 import toast from "react-hot-toast";
 import { format } from "date-fns";
@@ -49,6 +49,7 @@ const MemoList = () => {
   const [filterZoneName, setFilterZoneName] = useState(() => searchParams.get("zone") ?? "");
   const [filterRecipientType, setFilterRecipientType] = useState(() => searchParams.get("recipientType") ?? "");
   const [filterVice, setFilterVice] = useState(() => searchParams.get("vice") ?? "");
+  const [memoTypeFilter, setMemoTypeFilter] = useState(() => searchParams.get("memoType") ?? "WARNING");
   const { data: hierarchyData } = useQuery({
     queryKey: ["hierarchy"],
     queryFn: async () => {
@@ -135,7 +136,7 @@ const MemoList = () => {
   };
   const isComplianceTab = statusFilter === "__COMPLIANCE__";
   const { data, isLoading } = useQuery({
-    queryKey: ["memos", statusFilter, page, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, complianceSubFilter, filterZoneName, filterRecipientType, filterVice],
+    queryKey: ["memos", statusFilter, page, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, complianceSubFilter, filterZoneName, filterRecipientType, filterVice, memoTypeFilter],
     queryFn: async () => {
       const params = { page, limit: 20 };
       if (isComplianceTab) {
@@ -152,12 +153,13 @@ const MemoList = () => {
       if (filterZoneName && !filterZoneId) params.zone = filterZoneName;
       if (filterRecipientType) params.recipientType = filterRecipientType;
       if (filterVice) params.viceCategory = filterVice;
+      if (isComplianceTab && memoTypeFilter) params.memoType = memoTypeFilter;
       const res = await getMemos(params);
       return res.data;
     }
   });
   const { data: countsData } = useQuery({
-    queryKey: ["memos-counts", filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, filterZoneName, filterRecipientType, filterVice],
+    queryKey: ["memos-counts", filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, filterZoneName, filterRecipientType, filterVice, memoTypeFilter],
     queryFn: async () => {
       const params = {};
       if (filterZoneId) params.zoneId = filterZoneId;
@@ -168,6 +170,7 @@ const MemoList = () => {
       if (filterZoneName && !filterZoneId) params.zone = filterZoneName;
       if (filterRecipientType) params.recipientType = filterRecipientType;
       if (filterVice) params.viceCategory = filterVice;
+      if (memoTypeFilter) params.memoType = memoTypeFilter;
       const res = await getMemoCounts(params);
       return res.data.data;
     }
@@ -298,9 +301,10 @@ const MemoList = () => {
     if (filterZoneName) next.set("zone", filterZoneName);
     if (filterRecipientType) next.set("recipientType", filterRecipientType);
     if (filterVice) next.set("vice", filterVice);
+    if (memoTypeFilter) next.set("memoType", memoTypeFilter);
     setSearchParams(next, { replace: true });
     // eslint-disable-next-line
-  }, [statusFilter, complianceSubFilter, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, filterZoneName, filterRecipientType, filterVice]);
+  }, [statusFilter, complianceSubFilter, filterZoneId, filterPsId, filterSector, filterDateFrom, filterDateTo, filterZoneName, filterRecipientType, filterVice, memoTypeFilter]);
   return <div>{
     /* Official header */
   }<div className="bg-[#003366] -mx-3 sm:-mx-4 md:-mx-6 -mt-3 sm:-mt-4 md:-mt-6 px-3 sm:px-4 md:px-6 pt-4 sm:pt-5 pb-3 sm:pb-4 mb-4 sm:mb-6 border-b-2 border-[#B8860B]"><h1 className="text-sm font-bold text-white uppercase tracking-wider">Memos & Compliance Register</h1><p className="text-[11px] text-neutral-400 mt-0.5">Hyderabad City Police — Commissioner's Task Force</p></div>{
@@ -313,7 +317,7 @@ const MemoList = () => {
       onClick={() => {
         setStatusFilter(tab.key);
         setPage(1);
-        if (tab.key !== "__COMPLIANCE__") setComplianceSubFilter("");
+        if (tab.key !== "__COMPLIANCE__") { setComplianceSubFilter(""); setMemoTypeFilter("WARNING"); }
       }}
       className={`px-3 py-1.5 text-[12px] font-bold uppercase tracking-wider border transition-all ${isActive ? "bg-[#003366] text-white border-[#003366]" : "bg-white text-[#4A5568] border-[#D9DEE4] hover:bg-[#F4F5F7] hover:border-[#003366]/30"}`}
     >{tab.label}<span className={`ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm ${isActive ? "bg-white/20 text-white" : "bg-[#718096] text-white"}`}>{count}</span></button>;
@@ -364,7 +368,17 @@ const MemoList = () => {
             Clear All
           </button>}{(filterZoneName || filterRecipientType || filterVice) && <div className="basis-full flex flex-wrap items-center gap-2 mt-1">{filterZoneName && <span className="inline-flex items-center gap-1.5 bg-[#003366]/5 border border-[#003366]/20 text-[#003366] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">Zone: {filterZoneName}<button onClick={() => { setFilterZoneName(""); setPage(1); }} className="hover:text-[#9B2C2C]"><X size={12} /></button></span>}{filterRecipientType && <span className="inline-flex items-center gap-1.5 bg-[#003366]/5 border border-[#003366]/20 text-[#003366] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">Role: {filterRecipientType}<button onClick={() => { setFilterRecipientType(""); setPage(1); }} className="hover:text-[#9B2C2C]"><X size={12} /></button></span>}{filterVice && <span className="inline-flex items-center gap-1.5 bg-[#003366]/5 border border-[#003366]/20 text-[#003366] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider">Vice: {filterVice}<button onClick={() => { setFilterVice(""); setPage(1); }} className="hover:text-[#9B2C2C]"><X size={12} /></button></span>}</div>}</div>{
     /* Compliance sub-filter */
-  }{isComplianceTab && <div className="flex items-center gap-2 mb-4">{[
+  }{isComplianceTab && <div className="flex items-center gap-1.5 mb-4 flex-wrap"><div className="flex items-center gap-1.5">{[
+    { key: "WARNING", label: "Warning Memos", icon: <Shield size={11} /> },
+    { key: "CHARGE", label: "Charge Memos", icon: <Gavel size={11} /> }
+  ].map((mt) => <button
+    key={mt.key}
+    onClick={() => {
+      setMemoTypeFilter(mt.key);
+      setPage(1);
+    }}
+    className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider border transition-all ${memoTypeFilter === mt.key ? mt.key === "CHARGE" ? "bg-[#7f1d1d] text-white border-[#7f1d1d]" : "bg-[#003366] text-white border-[#003366]" : mt.key === "CHARGE" ? "bg-white text-[#7f1d1d] border-[#7f1d1d]/30 hover:bg-[#7f1d1d]/5" : "bg-white text-[#4A5568] border-[#D9DEE4] hover:bg-[#F4F5F7] hover:border-[#003366]/30"}`}
+  >{mt.icon}{mt.label}</button>)}</div><div className="w-px h-6 bg-slate-300 mx-1.5" /><div className="flex items-center gap-1.5">{[
     { key: "", label: "All" },
     { key: "AWAITING_REPLY", label: "Awaiting Reply" },
     { key: "COMPLIED", label: "Complied" }
@@ -375,7 +389,7 @@ const MemoList = () => {
       setPage(1);
     }}
     className={`px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider border transition-all ${complianceSubFilter === sf.key ? "bg-[#003366] text-white border-[#003366]" : "bg-white text-[#4A5568] border-[#D9DEE4] hover:bg-[#F4F5F7] hover:border-[#003366]/30"}`}
-  >{sf.label}{countsData && sf.key === "" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm bg-white/20">{countsData["__COMPLIANCE__"] || 0}</span>}{countsData && sf.key === "AWAITING_REPLY" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm bg-white/20">{countsData["compliance_AWAITING_REPLY"] || 0}</span>}{countsData && sf.key === "COMPLIED" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm bg-white/20">{countsData["compliance_COMPLIED"] || 0}</span>}</button>)}</div>}{
+  >{sf.label}{countsData && sf.key === "" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm bg-white/20">{countsData["__COMPLIANCE__"] || 0}</span>}{countsData && sf.key === "AWAITING_REPLY" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm bg-white/20">{countsData["compliance_AWAITING_REPLY"] || 0}</span>}{countsData && sf.key === "COMPLIED" && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 font-bold rounded-sm bg-white/20">{countsData["compliance_COMPLIED"] || 0}</span>}</button>)}</div></div>}{
     /* Table */
   }<div className="border border-slate-300 bg-white"><div className="overflow-x-auto"><table className="w-full text-[13px] table-fixed min-w-[800px]"><thead><tr className="bg-[#003366] text-white text-left"><th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[50px] text-center">S.No</th>{!isComplianceTab && <th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[100px]">Status</th>}<th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[100px]">Date</th><th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[18%]">Zone / PS</th><th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[90px]">Cr. No</th><th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[18%]">Sections</th><th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[15%]">Issued To</th>{isComplianceTab && <th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[160px]">Status</th>}{!isComplianceTab && <th className="px-4 py-3 font-bold text-[11px] uppercase tracking-wider w-[13%]">Generated By</th>}<th className={`px-4 py-3 font-bold text-[11px] uppercase tracking-wider text-center ${isComplianceTab ? "w-[140px]" : "w-[80px]"}`}>Actions</th></tr></thead><tbody>{isLoading ? <tr><td colSpan={isComplianceTab ? 8 : 9} className="px-4 py-12 text-center text-slate-400 font-medium">Loading records…</td></tr> : memos.length === 0 ? <tr><td colSpan={isComplianceTab ? 8 : 9} className="px-4 py-16 text-center"><FileText size={32} className="mx-auto text-slate-300 mb-2" /><p className="text-[13px] font-semibold text-slate-500">{isComplianceTab ? "No compliance records found" : "No memos found"}</p><p className="text-[12px] text-slate-400 mt-0.5">{isComplianceTab ? "Approved memos will appear here for compliance tracking." : "Generate a memo from a DSR case to get started."}</p></td></tr> : memos.map((memo, idx) => {
     const cfg = STATUS_CONFIG[memo.status];
@@ -384,8 +398,8 @@ const MemoList = () => {
     const displayComplianceStatus = memo.complianceStatus || "AWAITING_REPLY";
     return <React.Fragment key={memo._id}><tr
       onClick={() => navigate(`/memos/${memo._id}`, { state: { fromTab: statusFilter, fromSubFilter: complianceSubFilter } })}
-      className={`border-b border-slate-200 cursor-pointer transition-colors hover:bg-blue-50/60 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}
-    ><td className="px-4 py-3 font-bold text-slate-500 text-center">{sNo}</td>{!isComplianceTab && <td className="px-4 py-3"><span className={`inline-block px-2.5 py-1 text-[11px] font-bold tracking-wider ${cfg.bg} ${cfg.text}`}>{cfg.label}</span></td>}<td className="px-4 py-3 text-slate-700 font-medium tabular-nums">{format(new Date(memo.date), "dd-MM-yyyy")}</td><td className="px-4 py-3"><div className="font-bold text-slate-800">{memo.zone ? `${memo.zone} Zone` : "\u2014"}</div><div className="text-[11px] text-slate-500 mt-0.5">{memo.policeStation || "\u2014"} PS</div></td><td className="px-4 py-3 font-mono font-bold text-slate-700">{memo.crimeNo || "\u2014"}</td><td className="px-4 py-3 text-slate-600 max-w-[180px]"><span className="line-clamp-2 text-[12px]" title={memo.sections ? `u/s ${memo.sections}` : ""}>{memo.sections ? `u/s ${memo.sections}` : "\u2014"}</span></td><td className="px-4 py-3">{memo.recipientName ? <div><div className="font-semibold text-slate-700">{memo.recipientName}</div><div className="text-[11px] text-slate-400">{memo.recipientDesignation || memo.recipientType || ""}</div></div> : <span className="text-slate-400">—</span>}</td>{isComplianceTab && <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>{displayComplianceStatus === "COMPLIED" ? <div><span className="inline-block px-2.5 py-1 text-[10px] font-bold tracking-wider bg-emerald-700 text-white">COMPLIED</span>{memo.compliedAt && <div className="text-[10px] text-slate-400 mt-0.5">{format(new Date(memo.compliedAt), "dd-MM-yyyy")}</div>}</div> : <div className="relative inline-block"><select
+      className={`border-b border-slate-200 cursor-pointer transition-colors hover:bg-blue-50/60 ${memo.memoType === "CHARGE" ? "bg-[#7f1d1d]/[0.03]" : idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}
+    ><td className="px-4 py-3 font-bold text-slate-500 text-center">{sNo}</td>{!isComplianceTab && <td className="px-4 py-3"><span className={`inline-block px-2.5 py-1 text-[11px] font-bold tracking-wider ${cfg.bg} ${cfg.text}`}>{cfg.label}</span></td>}<td className="px-4 py-3 text-slate-700 font-medium tabular-nums">{format(new Date(memo.date), "dd-MM-yyyy")}</td><td className="px-4 py-3"><div className="font-bold text-slate-800">{memo.zone ? `${memo.zone} Zone` : "\u2014"}</div><div className="text-[11px] text-slate-500 mt-0.5">{memo.policeStation || "\u2014"} PS</div>{memo.memoType === "CHARGE" && <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-[1px] text-[9px] font-bold uppercase tracking-wider bg-[#7f1d1d] text-white rounded-sm"><Gavel size={9} />Charge Memo</span>}</td><td className="px-4 py-3 font-mono font-bold text-slate-700">{memo.memoType === "CHARGE" ? <span className="text-[11px] text-slate-400">{"\u2014"}</span> : (memo.crimeNo || "\u2014")}</td><td className="px-4 py-3 text-slate-600 max-w-[180px]">{memo.memoType === "CHARGE" ? <span className="text-slate-400">{"\u2014"}</span> : <span className="line-clamp-2 text-[12px]" title={memo.sections ? `u/s ${memo.sections}` : ""}>{memo.sections ? `u/s ${memo.sections}` : "\u2014"}</span>}</td><td className="px-4 py-3">{memo.recipientName ? <div><div className="font-semibold text-slate-700">{memo.recipientName}</div><div className="text-[11px] text-slate-400">{memo.recipientDesignation || memo.recipientType || ""}</div></div> : <span className="text-slate-400">—</span>}</td>{isComplianceTab && <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>{displayComplianceStatus === "COMPLIED" ? <div><span className="inline-block px-2.5 py-1 text-[10px] font-bold tracking-wider bg-emerald-700 text-white">COMPLIED</span>{memo.compliedAt && <div className="text-[10px] text-slate-400 mt-0.5">{format(new Date(memo.compliedAt), "dd-MM-yyyy")}</div>}</div> : <div className="relative inline-block"><select
       value={displayComplianceStatus}
       onChange={(e) => {
         if (e.target.value === "COMPLIED") {

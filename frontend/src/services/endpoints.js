@@ -39,6 +39,7 @@ export const getDSRStats = () => api.get("/dsr/stats/summary");
 export const updateDSR = (id, data) => api.put(`/dsr/${id}`, data);
 export const deleteDSR = (id) => api.delete(`/dsr/${id}`);
 export const generateMemo = (data) => api.post("/memos/generate", data);
+export const generateChargeMemo = (data) => api.post("/memos/generate-charge-memo", data);
 export const getMemos = (params) => api.get("/memos", { params });
 export const getMemoCounts = (params) => api.get("/memos/counts", { params });
 export const getMemo = (id) => api.get(`/memos/${id}`);

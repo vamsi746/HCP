@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { getOfficerMemoTracker, getOfficerMemos, getHierarchy, downloadComplianceDocument } from "../services/endpoints";
+import { getOfficerMemoTracker, getOfficerMemos, getHierarchy, downloadComplianceDocument, generateChargeMemo } from "../services/endpoints";
+import toast from "react-hot-toast";
 import FilterDropdown from "../components/FilterDropdown";
 import {
   Filter,
@@ -39,6 +40,14 @@ const RANK_LABELS = {
   ASI: "ASI",
   HEAD_CONSTABLE: "HC",
   CONSTABLE: "Const."
+};
+const ROLE_LABELS = {
+  PRIMARY_SI: "SI",
+  PRIMARY_SHO: "SHO",
+  ADDITIONAL_SI: "Addl. SI",
+  ADDITIONAL_SHO: "Addl. SHO",
+  NIGHT_SI: "Night SI",
+  STATION_WRITER: "Station Writer",
 };
 const OfficerTracker = () => {
   const navigate = useNavigate();
@@ -146,11 +155,12 @@ const OfficerTracker = () => {
   const rows = trackerResponse?.data || [];
   const stats = trackerResponse?.stats || { totalOfficers: 0, officersWithMemos: 0, totalMemos: 0, actionRequired: 0 };
   const pagination = trackerResponse?.pagination || { page: 1, limit: PAGE_SIZE, total: 0, totalPages: 0 };
-  const getWarningLevel = (count) => {
-    if (count === 0) return { label: "No Memos", color: "bg-emerald-50 text-emerald-600 border-emerald-200" };
-    if (count === 1) return { label: "1st Warning", color: "bg-amber-50 text-amber-700 border-amber-200" };
+  const getWarningLevel = (count, chargeCount = 0) => {
+    if (count >= 3) return { label: "Charge Memo Due", color: "bg-red-50 text-red-700 border-red-200" };
     if (count === 2) return { label: "2nd Warning", color: "bg-orange-50 text-orange-700 border-orange-200" };
-    return { label: "Charge Memo Due", color: "bg-red-50 text-red-700 border-red-200" };
+    if (count === 1) return { label: "1st Warning", color: "bg-amber-50 text-amber-700 border-amber-200" };
+    if (chargeCount > 0) return { label: "Charge Issued", color: "bg-[#7f1d1d]/10 text-[#7f1d1d] border-[#7f1d1d]/30" };
+    return { label: "No Memos", color: "bg-emerald-50 text-emerald-600 border-emerald-200" };
   };
   const switchView = (mode) => {
     setViewMode(mode);
@@ -211,20 +221,23 @@ const OfficerTracker = () => {
     onClick={() => switchView("action-required")}
     className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-semibold border transition-all ${viewMode === "action-required" ? "bg-red-600 text-white border-red-600" : "bg-white text-red-600 border-slate-200 hover:border-red-300"}`}
   ><Gavel size={13} />
-          Charge Due <span className="font-bold">{stats.actionRequired}</span></button></div>{
+          Charge Due <span className="font-bold">{stats.actionRequired}</span></button><button
+    onClick={() => switchView("charge-issued")}
+    className={`inline-flex items-center gap-1.5 px-3 py-[7px] rounded-lg text-[12px] font-semibold border transition-all ${viewMode === "charge-issued" ? "bg-[#7f1d1d] text-white border-[#7f1d1d]" : "bg-white text-[#7f1d1d] border-slate-200 hover:border-[#7f1d1d]/40"}`}
+  ><Gavel size={13} />
+          Charge Issued <span className="font-bold">{stats.chargeIssued || 0}</span></button></div>{
     /* Main content area */
   }<div className={`flex-1 flex flex-col ${selectedOfficer ? "lg:flex-row" : ""} gap-3 min-h-0 overflow-hidden`}>{
     /* Officer Table */
-  }<div className={`${selectedOfficer ? "min-h-[200px] lg:min-h-0 lg:w-[42%] xl:w-[38%] flex-shrink-0" : "w-full"} flex flex-col min-h-0`}><div className="border border-slate-200 bg-white rounded-lg overflow-hidden flex-1 flex flex-col"><div className="overflow-auto flex-1"><table className="w-full text-[12px]"><thead className="sticky top-0 z-10"><tr className="bg-[#003366] text-white text-left"><th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[32px] text-center">#</th><th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider">Officer</th><th className={`px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider ${selectedOfficer ? "hidden xl:table-cell" : ""}`}>Station / Sector</th><th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[56px] text-center">Memos</th><th className={`px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[100px] text-center ${selectedOfficer ? "hidden 2xl:table-cell" : ""}`}>Status</th></tr></thead><tbody>{isLoading ? <tr><td colSpan={5} className="px-4 py-16 text-center text-slate-400 font-medium text-[13px]">Loading officers…</td></tr> : rows.length === 0 ? <tr><td colSpan={5} className="px-4 py-16 text-center"><UserCheck size={28} className="mx-auto text-slate-300 mb-2" /><p className="text-[13px] font-semibold text-slate-500">{viewMode === "with-memos" ? "No officers with warnings" : viewMode === "action-required" ? "No officers with charge memo due" : "No officers found"}</p></td></tr> : rows.map((row, idx) => {
-    const warning = getWarningLevel(row.memoCount);
-    const isSelected = selectedOfficer?.officerId === row.officerId && selectedOfficer?.sectorId === row.sectorId;
+  }<div className={`${selectedOfficer ? "min-h-[200px] lg:min-h-0 lg:w-[42%] xl:w-[38%] flex-shrink-0" : "w-full"} flex flex-col min-h-0`}><div className="border border-slate-200 bg-white rounded-lg overflow-hidden flex-1 flex flex-col"><div className="overflow-auto flex-1"><table className="w-full text-[12px]"><thead className="sticky top-0 z-10"><tr className="bg-[#003366] text-white text-left"><th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[32px] text-center">#</th><th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider">Officer</th><th className={`px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider ${selectedOfficer ? "hidden xl:table-cell" : ""}`}>Station / Sector</th><th className="px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[56px] text-center">Memos</th><th className={`px-2 py-2.5 font-bold text-[10px] uppercase tracking-wider w-[100px] text-center ${selectedOfficer ? "hidden 2xl:table-cell" : ""}`}>Status</th></tr></thead><tbody>{isLoading ? <tr><td colSpan={5} className="px-4 py-16 text-center text-slate-400 font-medium text-[13px]">Loading officers…</td></tr> : rows.length === 0 ? <tr><td colSpan={5} className="px-4 py-16 text-center"><UserCheck size={28} className="mx-auto text-slate-300 mb-2" /><p className="text-[13px] font-semibold text-slate-500">{viewMode === "with-memos" ? "No officers with warnings" : viewMode === "action-required" ? "No officers with charge memo due" : viewMode === "charge-issued" ? "No officers with charge memos issued" : "No officers found"}</p></td></tr> : rows.map((row, idx) => {
+    const warning = getWarningLevel(row.memoCount, row.chargeCount);
+    const isSelected = selectedOfficer?.officerId === row.officerId;
     return <tr
-      key={`${row.officerId}-${row.sectorId}-${idx}`}
-      onClick={() => row.memoCount > 0 ? setSelectedOfficer(isSelected ? null : row) : void 0}
-      className={`border-b border-slate-100 transition-colors ${row.memoCount > 0 ? "cursor-pointer" : ""} ${isSelected ? "bg-blue-50 border-l-[3px] border-l-[#003366]" : idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${!isSelected && row.memoCount > 0 ? "hover:bg-slate-50" : ""} ${!isSelected && row.memoCount >= 3 ? "border-l-[3px] border-l-red-400" : ""}`}
-    ><td className="px-2 py-2 text-center text-slate-400 font-medium text-[11px]">{(pagination.page - 1) * pagination.limit + idx + 1}</td><td className="px-2 py-2"><div className="min-w-0"><p className="font-bold text-slate-800 truncate text-[12px] leading-tight">{row.name}</p><div className="flex items-center gap-1.5 mt-0.5"><span className="text-[9px] font-bold text-[#003366] bg-[#003366]/8 px-1.5 py-[1px] rounded">{row.role !== "\u2014" ? row.role.replace(/_/g, " ") : RANK_LABELS[row.rank] || row.rank}</span></div>{
-      /* Show station inline when column is hidden */
-    }{selectedOfficer && <p className="text-[10px] text-slate-400 truncate mt-0.5 xl:hidden">{row.policeStation} · {row.sector}</p>}</div></td><td className={`px-2 py-2 ${selectedOfficer ? "hidden xl:table-cell" : ""}`}><p className="text-slate-700 truncate text-[11px] font-medium">{row.policeStation}</p><p className="text-slate-400 text-[10px] truncate">{row.zone} · {row.sector}</p></td><td className="px-2 py-2 text-center">{row.memoCount > 0 ? <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[12px] font-bold ${row.memoCount >= 3 ? "bg-red-600 text-white" : row.memoCount === 2 ? "bg-orange-500 text-white" : "bg-amber-500 text-white"}`}>{row.memoCount}</span> : <span className="text-slate-300 text-[12px]">—</span>}</td><td className={`px-2 py-2 text-center ${selectedOfficer ? "hidden 2xl:table-cell" : ""}`}><span className={`inline-block px-2 py-1 text-[9px] font-bold tracking-wider rounded border ${warning.color}`}>{warning.label.toUpperCase()}</span></td></tr>;
+      key={row.officerId}
+      onClick={() => (row.memoCount > 0 || row.chargeCount > 0) ? setSelectedOfficer(isSelected ? null : row) : void 0}
+      className={`border-b border-slate-100 transition-colors ${(row.memoCount > 0 || row.chargeCount > 0) ? "cursor-pointer" : ""} ${isSelected ? "bg-blue-50 border-l-[3px] border-l-[#003366]" : idx % 2 === 0 ? "bg-white" : "bg-slate-50/40"} ${!isSelected && (row.memoCount > 0 || row.chargeCount > 0) ? "hover:bg-slate-50" : ""} ${!isSelected && row.memoCount >= 3 ? "border-l-[3px] border-l-red-400" : ""} ${!isSelected && row.chargeCount > 0 ? "border-l-[3px] border-l-[#7f1d1d]" : ""}`}
+    ><td className="px-2 py-2 text-center text-slate-400 font-medium text-[11px]">{(pagination.page - 1) * pagination.limit + idx + 1}</td><td className="px-2 py-2"><div className="min-w-0"><p className="font-bold text-slate-800 truncate text-[12px] leading-tight">{row.name}</p><div className="flex items-center gap-1.5 mt-0.5"><span className="text-[9px] font-bold text-[#003366] bg-[#003366]/8 px-1.5 py-[1px] rounded">{row.role !== "\u2014" ? (ROLE_LABELS[row.role] || row.role.replace(/_/g, " ")) : RANK_LABELS[row.rank] || row.rank}</span></div>{
+    }{selectedOfficer && <p className="text-[10px] text-slate-400 truncate mt-0.5 xl:hidden">{row.policeStation} · {row.sector}</p>}</div></td><td className={`px-2 py-2 ${selectedOfficer ? "hidden xl:table-cell" : ""}`}><p className="text-slate-700 truncate text-[11px] font-medium">{row.policeStation}</p><p className="text-slate-400 text-[10px] truncate">{row.zone} · {row.sector}</p></td><td className="px-2 py-2 text-center">{row.totalMemoCount > 0 ? <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-[12px] font-bold ${row.chargeCount > 0 && row.memoCount === 0 ? "bg-[#7f1d1d] text-white" : row.memoCount >= 3 ? "bg-red-600 text-white" : row.memoCount === 2 ? "bg-orange-500 text-white" : "bg-amber-500 text-white"}`}>{row.totalMemoCount}</span> : <span className="text-slate-300 text-[12px]">—</span>}</td><td className={`px-2 py-2 text-center ${selectedOfficer ? "hidden 2xl:table-cell" : ""}`}><span className={`inline-block px-2 py-1 text-[9px] font-bold tracking-wider rounded border ${warning.color}`}>{warning.label.toUpperCase()}</span></td></tr>;
   })}</tbody></table></div>{
     /* Footer with pagination */
   }{!isLoading && <div className="flex-shrink-0 border-t border-slate-100 px-3 py-1.5 bg-slate-50/60 flex items-center justify-between gap-2"><span className="text-[11px] font-semibold text-slate-400 tabular-nums">{pagination.total > 0 ? `${(pagination.page - 1) * pagination.limit + 1}\u2013${Math.min(pagination.page * pagination.limit, pagination.total)} of ${pagination.total}` : "0 officers"}</span>{pagination.totalPages > 1 && <div className="flex items-center gap-1"><button
@@ -244,6 +257,7 @@ const OfficerTracker = () => {
   /></div>}</div></div>;
 };
 const OfficerDetailPanel = ({ officer, onClose, onViewMemo }) => {
+  const navigate = useNavigate();
   const { data, isLoading } = useQuery({
     queryKey: ["officer-memos", officer.officerId],
     queryFn: async () => {
@@ -251,9 +265,42 @@ const OfficerDetailPanel = ({ officer, onClose, onViewMemo }) => {
       return res.data.data;
     }
   });
-  const memos = data || [];
-  const compliedCount = memos.filter((m) => m.complianceStatus === "COMPLIED").length;
-  const awaitingCount = memos.filter((m) => m.complianceStatus === "AWAITING_REPLY").length;
+  const chargeMemoMutation = useMutation({
+    mutationFn: () => generateChargeMemo({ officerId: officer.officerId }),
+    onSuccess: (res) => {
+      const memo = res.data.data;
+      toast.success("Charge memo generated successfully");
+      navigate(`/memos/${memo._id}`);
+    },
+    onError: (err) => {
+      const msg = err?.response?.data?.error || "Failed to generate charge memo";
+      toast.error(msg);
+    }
+  });
+  const allMemos = data || [];
+  // Build cycles: each charge memo closes a cycle, warnings after start fresh
+  const cycles = useMemo(() => {
+    if (!allMemos.length) return [];
+    const result = [];
+    let current = { warnings: [], charge: null };
+    for (const m of allMemos) {
+      if (m.memoType === "CHARGE") {
+        current.charge = m;
+        result.push(current);
+        current = { warnings: [], charge: null };
+      } else {
+        current.warnings.push(m);
+      }
+    }
+    if (current.warnings.length > 0 || current.charge) result.push(current);
+    return result;
+  }, [allMemos]);
+  const currentCycle = cycles.length > 0 ? cycles[cycles.length - 1] : { warnings: [], charge: null };
+  const currentWarningCount = currentCycle.warnings.length;
+  const hasChargeMemo = !!currentCycle.charge;
+  const totalCharges = cycles.filter(c => c.charge).length;
+  const compliedCount = allMemos.filter((m) => m.complianceStatus === "COMPLIED").length;
+  const awaitingCount = allMemos.filter((m) => m.complianceStatus === "AWAITING_REPLY").length;
   const [compliancePreview, setCompliancePreview] = useState(null);
   const [complianceLoading, setComplianceLoading] = useState(false);
   const [complianceBlob, setComplianceBlob] = useState(null);
@@ -323,44 +370,57 @@ const OfficerDetailPanel = ({ officer, onClose, onViewMemo }) => {
     /* Panel Header */
   }<div className="bg-[#003366] px-4 sm:px-5 py-3 flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="text-white font-bold text-[14px] truncate">{officer.name}</h2><div className="flex items-center gap-2 mt-1 flex-wrap"><span className="text-[10px] font-bold text-blue-200 bg-white/15 px-2 py-0.5 rounded">{RANK_LABELS[officer.rank] || officer.rank}</span><span className="text-[10px] text-blue-200">{officer.policeStation} · {officer.sector}</span><span className="text-[10px] text-blue-300/60">|</span><span className="text-[10px] text-blue-200">{officer.zone}</span></div></div><button onClick={onClose} className="text-white/60 hover:text-white mt-0.5 flex-shrink-0"><X size={16} /></button></div>{
     /* Warning Progress Bar */
-  }<div className="px-4 sm:px-5 py-3 border-b border-slate-100 bg-slate-50/60"><div className="flex items-center justify-between mb-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Warning Escalation</span>{officer.memoCount >= 3 && <span className="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse"><Gavel size={10} />
+  }<div className="px-4 sm:px-5 py-3 border-b border-slate-100 bg-slate-50/60"><div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Current Cycle{cycles.length > 1 ? ` (Cycle ${cycles.length})` : ""}</span>{totalCharges > 0 && <span className="text-[9px] font-semibold text-[#7f1d1d] bg-[#7f1d1d]/10 px-1.5 py-0.5 rounded">{totalCharges} Charge{totalCharges > 1 ? "s" : ""} Issued</span>}</div>{currentWarningCount >= 3 && <div className="flex items-center gap-2">{hasChargeMemo ? <span className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-[9px] font-bold px-2.5 py-1 rounded-full"><CheckCircle2 size={10} />
+              CHARGE MEMO ISSUED
+            </span> : <><span className="inline-flex items-center gap-1 bg-red-600 text-white text-[9px] font-bold px-2 py-0.5 rounded-full animate-pulse"><Gavel size={10} />
               CHARGE MEMO DUE
-            </span>}</div><div className="flex items-center gap-1">{[1, 2, 3].map((step) => <React.Fragment key={step}><div className="flex flex-col items-center gap-1 flex-1"><div className={`w-full h-2 rounded-full ${officer.memoCount >= step ? step === 3 ? "bg-red-500" : step === 2 ? "bg-orange-400" : "bg-amber-400" : "bg-slate-200"}`} /><span className={`text-[9px] font-bold ${officer.memoCount >= step ? step === 3 ? "text-red-600" : step === 2 ? "text-orange-600" : "text-amber-600" : "text-slate-300"}`}>{step === 3 ? "3rd Memo" : step === 2 ? "2nd Memo" : "1st Memo"}</span></div>{step < 3 && <ArrowRight size={10} className={`mt-[-10px] flex-shrink-0 ${officer.memoCount > step ? "text-slate-400" : "text-slate-200"}`} />}</React.Fragment>)}<ArrowRight size={10} className={`mt-[-10px] flex-shrink-0 ${officer.memoCount >= 3 ? "text-red-400" : "text-slate-200"}`} /><div className="flex flex-col items-center gap-1"><div className={`w-16 h-2 rounded-full ${officer.memoCount >= 3 ? "bg-red-700" : "bg-slate-200"}`} /><span className={`text-[9px] font-bold whitespace-nowrap ${officer.memoCount >= 3 ? "text-red-700" : "text-slate-300"}`}>
+            </span><button
+      onClick={() => chargeMemoMutation.mutate()}
+      disabled={chargeMemoMutation.isPending}
+      className="inline-flex items-center gap-1.5 bg-red-700 hover:bg-red-800 text-white text-[10px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-md shadow-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+    ><Gavel size={12} />{chargeMemoMutation.isPending ? "Generating…" : "Generate Charge Memo"}</button></>}</div>}</div><div className="flex items-center gap-1">{[1, 2, 3].map((step) => <React.Fragment key={step}><div className="flex flex-col items-center gap-1 flex-1"><div className={`w-full h-2 rounded-full ${currentWarningCount >= step ? step === 3 ? "bg-red-500" : step === 2 ? "bg-orange-400" : "bg-amber-400" : "bg-slate-200"}`} /><span className={`text-[9px] font-bold ${currentWarningCount >= step ? step === 3 ? "text-red-600" : step === 2 ? "text-orange-600" : "text-amber-600" : "text-slate-300"}`}>{step === 3 ? "3rd Memo" : step === 2 ? "2nd Memo" : "1st Memo"}</span></div>{step < 3 && <ArrowRight size={10} className={`mt-[-10px] flex-shrink-0 ${currentWarningCount > step ? "text-slate-400" : "text-slate-200"}`} />}</React.Fragment>)}<ArrowRight size={10} className={`mt-[-10px] flex-shrink-0 ${currentWarningCount >= 3 ? "text-red-400" : "text-slate-200"}`} /><div className="flex flex-col items-center gap-1"><div className={`w-16 h-2 rounded-full ${hasChargeMemo ? "bg-[#7f1d1d]" : currentWarningCount >= 3 ? "bg-red-700/40" : "bg-slate-200"}`} /><span className={`text-[9px] font-bold whitespace-nowrap ${hasChargeMemo ? "text-[#7f1d1d]" : currentWarningCount >= 3 ? "text-red-400" : "text-slate-300"}`}>
               Charge Memo
             </span></div></div></div>{
     /* Compliance summary */
-  }{!isLoading && memos.length > 0 && <div className="px-4 sm:px-5 py-2.5 border-b border-slate-100 flex items-center gap-4 flex-wrap"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Compliance:</span><span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 size={12} /> {compliedCount} Complied
+  }{!isLoading && allMemos.length > 0 && <div className="px-4 sm:px-5 py-2.5 border-b border-slate-100 flex items-center gap-4 flex-wrap"><span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Compliance:</span><span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><CheckCircle2 size={12} /> {compliedCount} Complied
           </span><span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600"><Clock size={12} /> {awaitingCount} Awaiting
-          </span><span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400"><FileText size={12} /> {memos.length} Total
+          </span><span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400"><FileText size={12} /> {allMemos.length} Total
           </span></div>}{
     /* Memo Timeline */
-  }<div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3">{isLoading ? <div className="flex items-center justify-center py-12"><p className="text-[12px] text-slate-400 font-medium">Loading memo history…</p></div> : memos.length === 0 ? <div className="flex items-center justify-center py-12"><p className="text-[12px] text-slate-400 font-medium">No memos found for this officer.</p></div> : <div className="space-y-0">{memos.map((memo, idx) => {
-    const warningNum = idx + 1;
+  }<div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3">{isLoading ? <div className="flex items-center justify-center py-12"><p className="text-[12px] text-slate-400 font-medium">Loading memo history…</p></div> : allMemos.length === 0 ? <div className="flex items-center justify-center py-12"><p className="text-[12px] text-slate-400 font-medium">No memos found for this officer.</p></div> : <div className="space-y-0">{cycles.map((cycle, cycleIdx) => {
+    const cycleMemos = [...cycle.warnings, ...(cycle.charge ? [cycle.charge] : [])];
+    return <React.Fragment key={cycleIdx}>{cycles.length > 1 && <div className="flex items-center gap-2 py-2 mb-1">{cycle.charge ? <><div className="flex-1 h-px bg-[#7f1d1d]/20" /><span className="text-[9px] font-bold text-[#7f1d1d] bg-[#7f1d1d]/10 px-2 py-0.5 rounded uppercase tracking-wider">Cycle {cycleIdx + 1} — Completed</span><div className="flex-1 h-px bg-[#7f1d1d]/20" /></> : <><div className="flex-1 h-px bg-blue-200" /><span className="text-[9px] font-bold text-[#003366] bg-[#003366]/10 px-2 py-0.5 rounded uppercase tracking-wider">Cycle {cycleIdx + 1} — Active</span><div className="flex-1 h-px bg-blue-200" /></>}</div>}{cycleMemos.map((memo, idx) => {
+    const isCharge = memo.memoType === "CHARGE";
+    const warningNum = isCharge ? null : cycle.warnings.indexOf(memo) + 1;
+    const displayNum = idx + 1;
     const isComplied = memo.complianceStatus === "COMPLIED";
     const isAwaiting = memo.complianceStatus === "AWAITING_REPLY";
+    const chargeStatusMap = { DRAFT: { label: "Draft", cls: "bg-amber-100 text-amber-700 border border-amber-200" }, PENDING_REVIEW: { label: "Pending Review", cls: "bg-blue-100 text-blue-700 border border-blue-200" }, APPROVED: { label: "Approved", cls: "bg-emerald-100 text-emerald-700 border border-emerald-200" }, SENT: { label: "Sent", cls: "bg-slate-100 text-slate-700 border border-slate-200" }, ON_HOLD: { label: "On Hold", cls: "bg-orange-100 text-orange-700 border border-orange-200" }, REJECTED: { label: "Rejected", cls: "bg-red-100 text-red-700 border border-red-200" } };
+    const chargeSt = isCharge ? (chargeStatusMap[memo.status] || chargeStatusMap.DRAFT) : null;
     return <div key={memo._id} className="relative pl-7 pb-5 last:pb-0">{
       /* Timeline line */
-    }{idx < memos.length - 1 && <div className="absolute left-[11px] top-[22px] bottom-0 w-[2px] bg-slate-200" />}{
+    }{idx < cycleMemos.length - 1 && <div className="absolute left-[11px] top-[22px] bottom-0 w-[2px] bg-slate-200" />}{
       /* Timeline dot */
-    }<div className={`absolute left-0 top-[2px] w-[24px] h-[24px] rounded-full flex items-center justify-center text-[10px] font-bold border-2 ${warningNum >= 3 ? "bg-red-600 text-white border-red-600" : warningNum === 2 ? "bg-orange-500 text-white border-orange-500" : "bg-amber-500 text-white border-amber-500"}`}>{warningNum}</div>{
+    }<div className={`absolute left-0 top-[2px] w-[24px] h-[24px] rounded-full flex items-center justify-center text-[10px] font-bold border-2 ${isCharge ? "bg-[#7f1d1d] text-white border-[#7f1d1d]" : warningNum >= 3 ? "bg-red-600 text-white border-red-600" : warningNum === 2 ? "bg-orange-500 text-white border-orange-500" : "bg-amber-500 text-white border-amber-500"}`}>{isCharge ? <Gavel size={11} /> : displayNum}</div>{
       /* Memo Card */
-    }<div className={`border rounded-lg overflow-hidden ${warningNum >= 3 ? "border-red-200 bg-red-50/30" : "border-slate-200 bg-white"}`}>{
+    }<div className={`border rounded-lg overflow-hidden ${isCharge ? "border-[#7f1d1d]/30 bg-[#7f1d1d]/5" : warningNum >= 3 ? "border-red-200 bg-red-50/30" : "border-slate-200 bg-white"}`}>{
       /* Card header */
-    }<div className="px-3 py-2.5 flex items-start justify-between gap-2"><div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap"><span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-[1px] rounded ${warningNum >= 3 ? "bg-red-100 text-red-700" : warningNum === 2 ? "bg-orange-100 text-orange-700" : "bg-amber-100 text-amber-700"}`}>{warningNum >= 3 ? "3rd Warning" : warningNum === 2 ? "2nd Warning" : "1st Warning"}</span>{memo.memoNumber && <span className="text-[10px] text-slate-400 font-mono">{memo.memoNumber}</span>}</div><p className="text-[11px] font-semibold text-slate-700 mt-1 line-clamp-2">{memo.subject || `Cr. No ${memo.crimeNo || "\u2014"} \xB7 u/s ${memo.sections || "\u2014"}`}</p><div className="flex items-center gap-3 mt-1.5 flex-wrap"><span className="inline-flex items-center gap-1 text-[10px] text-slate-500"><Calendar size={10} className="text-slate-400" />
-                            Issued: {memo.approvedAt ? format(new Date(memo.approvedAt), "dd MMM yyyy") : "\u2014"}</span>{memo.policeStation && <span className="text-[10px] text-slate-400">{memo.policeStation}</span>}</div></div><button
+    }<div className="px-3 py-2.5 flex items-start justify-between gap-2"><div className="min-w-0 flex-1"><div className="flex items-center gap-2 flex-wrap">{isCharge ? <><span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-[1px] rounded bg-[#7f1d1d] text-white">Charge Memo</span>{chargeSt && <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-[1px] rounded ${chargeSt.cls}`}>{chargeSt.label}</span>}</> : <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-[1px] rounded ${warningNum >= 3 ? "bg-red-100 text-red-700" : warningNum === 2 ? "bg-orange-100 text-orange-700" : "bg-amber-100 text-amber-700"}`}>{warningNum >= 3 ? "3rd Warning" : warningNum === 2 ? "2nd Warning" : "1st Warning"}</span>}{memo.memoNumber && <span className="text-[10px] text-slate-400 font-mono">{memo.memoNumber}</span>}</div><p className="text-[11px] font-semibold text-slate-700 mt-1 line-clamp-2">{memo.subject || `Cr. No ${memo.crimeNo || "\u2014"} \xB7 u/s ${memo.sections || "\u2014"}`}</p><div className="flex items-center gap-3 mt-1.5 flex-wrap"><span className="inline-flex items-center gap-1 text-[10px] text-slate-500"><Calendar size={10} className="text-slate-400" />
+                            {isCharge ? (memo.approvedAt ? `Issued: ${format(new Date(memo.approvedAt), "dd MMM yyyy")}` : `Created: ${format(new Date(memo.date), "dd MMM yyyy")}`) : `Issued: ${memo.approvedAt ? format(new Date(memo.approvedAt), "dd MMM yyyy") : "\u2014"}`}</span>{memo.policeStation && <span className="text-[10px] text-slate-400">{memo.policeStation}</span>}</div></div><button
       onClick={() => onViewMemo(memo._id)}
       className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold text-[#003366] hover:text-[#B8860B] bg-[#003366]/5 hover:bg-[#B8860B]/10 px-2 py-1 rounded transition-colors"
     ><Eye size={11} />
                         View
                       </button></div>{
-      /* Compliance Section */
-    }<div className={`px-3 py-2 border-t ${isComplied ? "bg-emerald-50/60 border-emerald-100" : isAwaiting ? "bg-amber-50/40 border-amber-100" : "bg-slate-50/60 border-slate-100"}`}><div className="flex items-center justify-between gap-2 flex-wrap"><div className="flex items-center gap-2">{isComplied ? <><CheckCircle2 size={13} className="text-emerald-600" /><div><span className="text-[10px] font-bold text-emerald-700">Compliance Received</span>{memo.compliedAt && <span className="text-[10px] text-emerald-600 ml-1.5">
+      /* Compliance / Status Section */
+    }{isCharge && !["APPROVED", "SENT"].includes(memo.status) ? <div className="px-3 py-2 border-t border-[#7f1d1d]/10 bg-[#7f1d1d]/5"><div className="flex items-center gap-2"><FileText size={13} className="text-[#7f1d1d]" /><span className="text-[10px] font-bold text-[#7f1d1d]">{memo.status === "DRAFT" ? "Charge memo in draft \u2014 pending submission" : memo.status === "PENDING_REVIEW" ? "Charge memo submitted \u2014 pending CP review" : memo.status === "ON_HOLD" ? "Charge memo on hold" : memo.status === "REJECTED" ? "Charge memo rejected" : "Processing"}</span></div></div> : <div className={`px-3 py-2 border-t ${isComplied ? "bg-emerald-50/60 border-emerald-100" : isAwaiting ? "bg-amber-50/40 border-amber-100" : "bg-slate-50/60 border-slate-100"}`}><div className="flex items-center justify-between gap-2 flex-wrap"><div className="flex items-center gap-2">{isComplied ? <><CheckCircle2 size={13} className="text-emerald-600" /><div><span className="text-[10px] font-bold text-emerald-700">Compliance Received</span>{memo.compliedAt && <span className="text-[10px] text-emerald-600 ml-1.5">
                                     on {format(new Date(memo.compliedAt), "dd MMM yyyy")}</span>}</div></> : isAwaiting ? <><Clock size={13} className="text-amber-600" /><span className="text-[10px] font-bold text-amber-700">Awaiting Compliance</span></> : <><Clock size={13} className="text-slate-400" /><span className="text-[10px] font-semibold text-slate-400">No compliance yet</span></>}</div>{isComplied && memo.complianceDocumentName && <button
       onClick={() => openCompliancePreview(memo._id, memo.complianceDocumentName)}
       className="inline-flex items-center gap-1 text-[10px] font-bold text-[#003366] hover:text-[#B8860B] bg-[#003366]/5 hover:bg-[#B8860B]/10 px-2 py-1 rounded transition-colors"
     ><Eye size={10} />
                             View Compliance
-                          </button>}</div>{isComplied && memo.complianceRemarks && <p className="text-[10px] text-emerald-600 mt-1 pl-5 line-clamp-2">{memo.complianceRemarks}</p>}</div></div></div>;
+                          </button>}</div>{isComplied && memo.complianceRemarks && <p className="text-[10px] text-emerald-600 mt-1 pl-5 line-clamp-2">{memo.complianceRemarks}</p>}</div>}</div></div>;
+  })}</React.Fragment>;
   })}</div>}</div>{
     /* Compliance Document Preview Modal */
   }{compliancePreview && <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-6" onClick={closeCompliancePreview}><div className="bg-white rounded-lg shadow-2xl w-full max-w-7xl h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>{
@@ -375,4 +435,5 @@ const OfficerDetailPanel = ({ officer, onClose, onViewMemo }) => {
     /* Modal Body */
   }<div className="flex-1 overflow-auto p-4 bg-slate-50">{complianceLoading ? <div className="flex items-center justify-center py-20"><Loader2 size={28} className="animate-spin text-slate-400" /></div> : !complianceBlob ? <div className="flex items-center justify-center py-20"><p className="text-[12px] text-slate-400 font-medium">Failed to load document</p></div> : isDocx ? <div ref={docxPreviewRef} className="bg-white border border-slate-200 p-4 min-h-[300px]" /> : complianceUrl ? <iframe src={complianceUrl} className="w-full h-[60vh] border border-slate-200 bg-white" title="Compliance Document" /> : null}</div></div></div>}</div>;
 };
+export { OfficerDetailPanel };
 export default OfficerTracker;

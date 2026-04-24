@@ -12,9 +12,12 @@ var MemoStatus; (function (MemoStatus) {
 
 const memoSchema = new (0, _mongoose.Schema)(
   {
-    // Link to DSR case
-    dsrId: { type: _mongoose.Schema.Types.ObjectId, ref: 'DSR', required: true },
-    caseId: { type: String, required: true }, // parsedCase _id within DSR
+    // Link to DSR case (optional for charge memos)
+    dsrId: { type: _mongoose.Schema.Types.ObjectId, ref: 'DSR' },
+    caseId: { type: String }, // parsedCase _id within DSR
+
+    // Memo type: WARNING (default) or CHARGE
+    memoType: { type: String, enum: ['WARNING', 'CHARGE'], default: 'WARNING' },
 
     // Memo fields
     memoNumber: { type: String, default: '' },

@@ -74,13 +74,33 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
       return divToZone[divId] || null;
     };
 
-    // 3. Get memo counts per officer (only APPROVED/SENT memos where officer is recipient)
-    const memoCounts = await _models.Memo.aggregate([
-      { $match: { recipientId: { $exists: true, $ne: null }, status: { $in: ['APPROVED', 'SENT'] } } },
-      { $group: { _id: '$recipientId', count: { $sum: 1 } } },
-    ]);
+    // 3. Get memo counts per officer, using cycle logic
+    const allMemos = await _models.Memo.find({ recipientId: { $ne: null } })
+      .select('recipientId memoType status date createdAt')
+      .sort({ date: 1, createdAt: 1 })
+      .lean();
+
     const memoCountMap = {};
-    for (const m of memoCounts) memoCountMap[String(m._id)] = m.count;
+    const chargeCountMap = {};
+    const totalMemoCountMap = {};
+    for (const m of allMemos) {
+      const rid = String(m.recipientId);
+      if (!memoCountMap[rid]) memoCountMap[rid] = 0;
+      if (!chargeCountMap[rid]) chargeCountMap[rid] = 0;
+      if (!totalMemoCountMap[rid]) totalMemoCountMap[rid] = 0;
+
+      if (m.memoType === 'CHARGE') {
+        if (m.status !== 'REJECTED') {
+          chargeCountMap[rid]++;
+          memoCountMap[rid] = 0; // reset warnings on charge memo
+        }
+      } else {
+        if (m.status === 'APPROVED' || m.status === 'SENT') {
+          memoCountMap[rid]++;
+          totalMemoCountMap[rid]++;
+        }
+      }
+    }
 
     // 4. Build all officer rows
     
@@ -117,7 +137,7 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
       const zone = zoneMap[zId];
       if (!zone) continue;
 
-      const key = `${officer._id}-${sec._id}`;
+      const key = String(officer._id);
       if (seen.has(key)) continue;
       seen.add(key);
       assignedOfficerIds.add(String(officer._id));
@@ -146,6 +166,8 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
         zoneId: String(zone._id),
         role: a.role,
         memoCount: memoCountMap[String(officer._id)] || 0,
+        chargeCount: chargeCountMap[String(officer._id)] || 0,
+        totalMemoCount: totalMemoCountMap[String(officer._id)] || 0,
       });
     }
 
@@ -173,6 +195,8 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
           zoneId: '',
           role: '—',
           memoCount: memoCountMap[String(off._id)] || 0,
+          chargeCount: chargeCountMap[String(off._id)] || 0,
+          totalMemoCount: totalMemoCountMap[String(off._id)] || 0,
         });
       }
     }
@@ -191,6 +215,7 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
     let filtered = rows;
     if (viewMode === 'with-memos') filtered = rows.filter((r) => r.memoCount > 0);
     else if (viewMode === 'action-required') filtered = rows.filter((r) => r.memoCount >= 3);
+    else if (viewMode === 'charge-issued') filtered = rows.filter((r) => r.chargeCount > 0);
 
     // 8. Compute stats from full rows (pre-filter)
     const stats = {
@@ -198,6 +223,7 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
       officersWithMemos: rows.filter((r) => r.memoCount > 0).length,
       totalMemos: rows.reduce((s, r) => s + r.memoCount, 0),
       actionRequired: rows.filter((r) => r.memoCount >= 3).length,
+      chargeIssued: rows.filter((r) => r.chargeCount > 0).length,
     };
 
     // 9. Paginate
@@ -220,12 +246,18 @@ router.get('/memo-tracker', _auth.authenticate, async (req, res) => {
 // GET /api/officers/memo-tracker/:officerId/memos — memos issued to a specific officer
 router.get('/memo-tracker/:officerId/memos', _auth.authenticate, async (req, res) => {
   try {
+    const officerOid = new _mongoose2.default.Types.ObjectId(req.params.officerId);
     const memos = await _models.Memo.find({
-      recipientId: new _mongoose2.default.Types.ObjectId(req.params.officerId),
-      status: { $in: ['APPROVED', 'SENT'] },
+      recipientId: officerOid,
+      $or: [
+        // Warning memos: only show approved/sent
+        { memoType: { $ne: 'CHARGE' }, status: { $in: ['APPROVED', 'SENT'] } },
+        // Charge memos: show in any status so UI can track existence
+        { memoType: 'CHARGE' },
+      ],
     })
-      .select('memoNumber crimeNo policeStation zone sections date status recipientDesignation subject complianceStatus compliedAt complianceDocumentName complianceDocumentPath complianceRemarks approvedAt')
-      .sort({ date: 1 })
+      .select('memoType memoNumber crimeNo policeStation zone sections date status recipientDesignation subject complianceStatus compliedAt complianceDocumentName complianceDocumentPath complianceRemarks approvedAt')
+      .sort({ date: 1, createdAt: 1 })
       .lean();
 
     res.json({ data: memos });

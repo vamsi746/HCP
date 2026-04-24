@@ -351,6 +351,198 @@ router.post('/generate', _auth.authenticate, async (req, res) => {
   }
 });
 
+// ── POST /api/memos/generate-charge-memo — Generate charge memo for officer with 3+ warnings ──
+
+function generateChargeMemoHTML(officerName, officerDesignation, psName, zoneName, divisionName, memoDate) {
+  const memoDateDisplay = formatDateParts(memoDate, '-');
+
+  const template = `<p style="text-align: center"><strong>GOVERNMENT OF TELANGANA</strong></p>
+<p style="text-align: center"><strong>POLICE DEPARTMENT</strong></p>
+<p>&nbsp;</p>
+<p style="text-align: right">Office of the,</p>
+<p style="text-align: right">Commissioner of Police,</p>
+<p style="text-align: right">Hyderabad City</p>
+<p><span style="display:inline-block;width:60%;vertical-align:top">No. {{memoNumber}}</span><span style="display:inline-block;width:39%;text-align:right;vertical-align:top">Dated: {{memoDate}}</span></p>
+<p style="text-align: center"><strong><u>CHARGE MEMO</u></strong></p>
+<p>&nbsp;</p>
+<p style="text-align: justify"><strong>Sub:</strong> Issuance of charge memo due to continued lapses in discharge of duties despite three warning memos.</p>
+<p>&nbsp;</p>
+<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;It is observed that Sri. {{officerName}}, {{officerDesignation}}, of {{psName}} Police Station has been issued three warning memos for lapses in duty.</p>
+<p>&nbsp;</p>
+<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Despite the above, there is no improvement in performance and the officer has failed to discharge duties properly.</p>
+<p>&nbsp;</p>
+<p style="text-align: justify"><strong>Charge:</strong></p>
+<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;The officer has shown negligence in duty, lack of supervision, and failure to prevent/detect offences in his jurisdiction.</p>
+<p>&nbsp;</p>
+<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Therefore, the officer is hereby directed to submit his explanation within 7 days from the date of receipt of this memo.</p>
+<p>&nbsp;</p>
+<p style="text-align: justify">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;If no explanation is received within the stipulated time, it will be presumed that he has no explanation to offer and further action will be taken accordingly.</p>
+<div class="memo-footer-block">
+  <p>&nbsp;</p>
+  <p>&nbsp;</p>
+  <div class="memo-signature-block">
+    <p style="text-align: right">Commissioner of Police,</p>
+    <p style="text-align: right">Hyderabad City</p>
+  </div>
+  <p>&nbsp;</p>
+  <p>&nbsp;</p>
+  <p>&nbsp;</p>
+  <div class="memo-dispatch-block">
+    <p>To:</p>
+    <p>Sri. {{officerName}}, {{officerDesignation}},</p>
+    <p>{{psName}} P.S, Hyderabad.</p>
+    <p>&nbsp;</p>
+    <p>Copy:</p>
+    <p>1. The ACP, {{divisionLabel}} for information and necessary action.</p>
+    <p>2. The DCP, {{zoneLabel}} for information and necessary action.</p>
+  </div>
+</div>`;
+
+  return renderMemoTemplate(template, {
+    memoNumber: '___________',
+    memoDate: escapeHtml(memoDateDisplay),
+    officerName: escapeHtml(officerName),
+    officerDesignation: escapeHtml(officerDesignation),
+    psName: escapeHtml(psName),
+    divisionLabel: escapeHtml(divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad'),
+    zoneLabel: escapeHtml(zoneName ? `${zoneName} Zone, Hyderabad` : '________ Zone, Hyderabad'),
+  });
+}
+
+router.post('/generate-charge-memo', _auth.authenticate, async (req, res) => {
+  try {
+    const { officerId } = req.body;
+    if (!officerId) {
+      res.status(400).json({ error: 'officerId is required' });
+      return;
+    }
+
+    // 1. Check officer exists
+    const officer = await _models.Officer.findById(officerId).lean();
+    if (!officer) {
+      res.status(404).json({ error: 'Officer not found' });
+      return;
+    }
+
+    // 2. Verify officer has 3+ approved/sent warning memos
+    const warningCount = await _models.Memo.countDocuments({
+      recipientId: officer._id,
+      status: { $in: ['APPROVED', 'SENT'] },
+    });
+    if (warningCount < 3) {
+      res.status(400).json({ error: 'Officer does not have 3 or more warning memos' });
+      return;
+    }
+
+    // 3. Check if a charge memo already exists as DRAFT for this officer
+    const existingCharge = await _models.Memo.findOne({
+      recipientId: officer._id,
+      memoType: 'CHARGE',
+      status: 'DRAFT',
+    });
+    if (existingCharge) {
+      // Return the existing draft instead of creating a new one
+      res.status(200).json({ data: existingCharge });
+      return;
+    }
+
+    // 4. Resolve officer's assignment (sector → PS → circle → division → zone)
+    const assignment = await _models.SectorOfficer.findOne({ officerId: officer._id, isActive: true })
+      .populate({
+        path: 'sectorId',
+        select: 'name policeStationId',
+        populate: {
+          path: 'policeStationId',
+          select: 'name code circleId',
+        },
+      })
+      .lean();
+
+    let psName = '________';
+    let zoneName = '';
+    let divisionName = '';
+    let psId = null;
+    let zoneId = null;
+
+    if (assignment) {
+      const sec = assignment.sectorId;
+      if (sec && sec.policeStationId) {
+        const station = sec.policeStationId;
+        psName = station.name || psName;
+        psId = station._id;
+
+        // Walk up: PS → Circle → Division → Zone
+        if (station.circleId) {
+          const circle = await _models.Circle.findById(station.circleId).lean();
+          if (circle && circle.divisionId) {
+            const division = await _models.Division.findById(circle.divisionId).lean();
+            if (division) {
+              divisionName = (division.name || '').replace(/\s*Division$/i, '');
+              if (division.zoneId) {
+                const zone = await _models.Zone.findById(division.zoneId).lean();
+                if (zone) {
+                  zoneName = (zone.name || '').replace(/\s*Zone$/i, '');
+                  zoneId = zone._id;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Determine officer designation from rank
+    const designationMap = {
+      SI: 'Sub-Inspector of Police',
+      WSI: 'Woman Sub-Inspector of Police',
+      PSI: 'Probationary Sub-Inspector of Police',
+      ASI: 'Assistant Sub-Inspector of Police',
+      CI: 'Circle Inspector of Police',
+      HEAD_CONSTABLE: 'Head Constable',
+      CONSTABLE: 'Constable',
+    };
+    // If officer has 'admin' in remarks, they are SHO / Inspector of Police
+    const isAdmin = (officer.remarks || '').toLowerCase().includes('admin');
+    const officerDesignation = isAdmin ? 'Inspector of Police' : (designationMap[officer.rank] || 'Inspector of Police');
+
+    // 6. Generate HTML
+    const memoDate = new Date();
+    const content = generateChargeMemoHTML(officer.name, officerDesignation, psName, zoneName, divisionName, memoDate);
+
+    const subject = 'Issuance of charge memo due to continued lapses in discharge of duties despite three warning memos.';
+
+    // 7. Create charge memo
+    const memo = await _models.Memo.create({
+      memoType: 'CHARGE',
+      date: memoDate,
+      subject,
+      reference: '',
+      content,
+      policeStation: psName,
+      psId,
+      zone: zoneName,
+      zoneId,
+      status: _models.MemoStatus.DRAFT,
+      generatedBy: req.user.id,
+      generatedAt: memoDate,
+      recipientId: officer._id,
+      recipientName: officer.name,
+      recipientDesignation: officerDesignation,
+      recipientType: isAdmin ? 'SHO' : 'SI',
+      recipientPS: psName,
+      copyTo: [
+        { designation: 'ACP', name: '', unit: divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad' },
+        { designation: 'DCP', name: '', unit: zoneName ? `${zoneName} Zone, Hyderabad` : '________ Zone, Hyderabad' },
+      ],
+    });
+
+    res.status(201).json({ data: memo });
+  } catch (err) {
+    console.error('[MEMO] Generate charge memo error:', err.message);
+    res.status(500).json({ error: 'Failed to generate charge memo' });
+  }
+});
+
 // ── GET /api/memos/case-officers/:psId — Get SI and SHO for a PS ────────────
 
 router.get('/case-officers/:psId', _auth.authenticate, async (req, res) => {
@@ -393,8 +585,10 @@ router.get('/case-officers/:psId', _auth.authenticate, async (req, res) => {
 
 router.get('/', _auth.authenticate, async (req, res) => {
   try {
-    const { status, dsrId, page = '1', limit = '20', zoneId, zone, psId, dateFrom, dateTo, sector, complianceView, complianceStatus: csFilter, recipientType, viceCategory } = req.query;
+    const { status, dsrId, page = '1', limit = '20', zoneId, zone, psId, dateFrom, dateTo, sector, complianceView, complianceStatus: csFilter, recipientType, viceCategory, memoType } = req.query;
     const filter = {};
+    if (memoType === 'CHARGE') filter.memoType = 'CHARGE';
+    else if (memoType === 'WARNING') filter.memoType = { $ne: 'CHARGE' };
     if (complianceView) {
       filter.status = { $in: ['APPROVED', 'SENT'] };
       if (csFilter === 'AWAITING_REPLY') {
@@ -538,8 +732,10 @@ router.get('/', _auth.authenticate, async (req, res) => {
 
 router.get('/counts', _auth.authenticate, async (req, res) => {
   try {
-    const { zoneId, zone, psId, dateFrom, dateTo, sector, recipientType, viceCategory } = req.query;
+    const { zoneId, zone, psId, dateFrom, dateTo, sector, recipientType, viceCategory, memoType } = req.query;
     const filter = {};
+    if (memoType === 'CHARGE') filter.memoType = 'CHARGE';
+    else if (memoType === 'WARNING') filter.memoType = { $ne: 'CHARGE' };
     if (zoneId) filter.zoneId = new _mongoose2.default.Types.ObjectId(zoneId );
     if (zone && !zoneId) {
       const cleanZone = String(zone).replace(/\s*Zone\s*$/i, '').trim();

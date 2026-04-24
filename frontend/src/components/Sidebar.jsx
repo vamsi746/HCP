@@ -20,7 +20,7 @@ const navItems = [
   { to: "/officer-tracker", label: "Memo Compliance", icon: UserSearch, color: "from-rose-500 to-rose-600", text: "text-rose-600" },
   //{ to: '/reports', label: 'Reports', icon: ClipboardList, color: 'from-orange-500 to-orange-600', text: 'text-orange-600' },
   { to: "/mapping", label: "Mapping", icon: Map, color: "from-emerald-500 to-emerald-600", text: "text-emerald-600" },
-  { to: "/officers", label: "Officers", icon: Users, color: "from-violet-500 to-violet-600", text: "text-violet-600" }
+  //{ to: "/officers", label: "Officers", icon: Users, color: "from-violet-500 to-violet-600", text: "text-violet-600" }
 ];
 const ICON_BASE = 38;
 const ICON_MAX = 52;
