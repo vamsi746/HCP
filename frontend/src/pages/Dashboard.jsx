@@ -2,6 +2,11 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getDashboardAnalytics } from "../services/endpoints";
+import OfficerDashboard from "./OfficerDashboard";
+import SectionCard from "../components/SectionCard";
+import EmptyState from "../components/EmptyState";
+import { useSelector } from "react-redux";
+import { rankPrefix, designationLabel } from "../utils/formatters";
 import {
   PieChart,
   Pie,
@@ -23,6 +28,13 @@ const ALL_ZONES = ["Charminar Zone", "Golkonda Zone", "Jubilee Hills Zone", "Kha
 const ROLE_COLORS = { SHO: "#003366", SI: "#d97706", UNASSIGNED: "#94a3b8" };
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useSelector((s) => s.auth);
+
+  // Role-based redirection logic
+  if (user?.systemRole === "SHO" || user?.systemRole === "SI") {
+    return <OfficerDashboard user={user} />;
+  }
+
   const [searchParams, setSearchParams] = useSearchParams();
   const dateFrom = searchParams.get("from") || "";
   const dateTo = searchParams.get("to") || "";
@@ -123,7 +135,7 @@ const Dashboard = () => {
     /* ====== ROW 1: VICE + ZONE + ROLES (3 cols) ====== */
   }<div className="grid grid-cols-1 md:grid-cols-3 gap-3 auto-rows-[minmax(320px,1fr)]">{
     /* Social Vice Category Distribution */
-  }<SectionCard title="Social Vice Category Distribution">{viceData.list.length === 0 ? <EmptyState /> : <><div className="space-y-2.5">{viceData.list.map((v, i) => <HBar
+  }<SectionCard title="Social Vice Category Distribution">{viceData.list.length === 0 ? <EmptyStateLocal /> : <><div className="space-y-2.5">{viceData.list.map((v, i) => <HBar
     key={v.category}
     label={v.category}
     value={v.memos}
@@ -132,7 +144,7 @@ const Dashboard = () => {
     onClick={() => goToMemos({ vice: v.category })}
   />)}</div></>}</SectionCard>{
     /* Zone-wise Issued Memos */
-  }<SectionCard title="Zone-wise Issued Memos">{zoneData.list.length === 0 ? <EmptyState /> : <div className="space-y-2.5">{zoneData.list.map((z, i) => <HBar
+  }<SectionCard title="Zone-wise Issued Memos">{zoneData.list.length === 0 ? <EmptyStateLocal /> : <div className="space-y-2.5">{zoneData.list.map((z, i) => <HBar
     key={z.zone}
     label={z.zone}
     value={z.memos}
@@ -141,7 +153,7 @@ const Dashboard = () => {
     onClick={() => goToMemos({ zone: z.zone })}
   />)}</div>}</SectionCard>{
     /* Role-wise Memo Distribution */
-  }<SectionCard title="Role-wise Memo Distribution">{roleData.length === 0 ? <EmptyState /> : <><ResponsiveContainer width="100%" height={220}><BarChart data={roleData} barSize={50}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis
+  }<SectionCard title="Role-wise Memo Distribution">{roleData.length === 0 ? <EmptyStateLocal /> : <><ResponsiveContainer width="100%" height={220}><BarChart data={roleData} barSize={50}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" /><XAxis
     dataKey="role"
     tick={{ fontSize: 10, fill: "#64748b" }}
     axisLine={false}
@@ -200,11 +212,7 @@ const Dashboard = () => {
                     Review Now &rarr;
                   </button></div></div></div></SectionCard>{
     /* Charge Memo Analytics & Issuance */
-  }<div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col"><div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-100 gap-2"><h3 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                Charge Memo Analytics & Issuance
-              </h3><span className="bg-[#003366] text-white text-[8px] font-bold px-2.5 py-1 rounded leading-tight text-center uppercase flex-shrink-0">
-                Charge Memo Flag: &gt;3 Pending
-              </span></div><div className="px-4 pb-3">{officers.length === 0 ? <EmptyState /> : <><div className="overflow-x-auto border border-slate-200 rounded mt-2"><table className="w-full text-[10px]"><thead><tr className="bg-slate-50"><th className="text-left py-2 px-3 font-bold text-slate-600 uppercase border-b border-slate-200">
+  }<SectionCard title="Charge Memo Analytics & Issuance">{officers.length === 0 ? <EmptyStateLocal /> : <><div className="overflow-x-auto border border-slate-200 rounded mt-2"><table className="w-full text-[10px]"><thead><tr className="bg-slate-50"><th className="text-left py-2 px-3 font-bold text-slate-600 uppercase border-b border-slate-200">
                             Officer Name
                           </th><th className="text-left py-2 px-3 font-bold text-slate-600 uppercase border-b border-slate-200">
                             Designation
@@ -222,7 +230,7 @@ const Dashboard = () => {
     className={`w-2 h-2 rounded-full ${o.memoCount >= 5 ? "bg-red-500" : "bg-amber-400"}`}
   /></span></td><td className="py-2 px-3 text-center"><span className={`text-[9px] font-bold px-2 py-0.5 rounded ${o.memoCount >= 5 ? "text-red-700 bg-red-50" : "text-amber-700 bg-amber-50"}`}>{o.memoCount >= 5 ? "Critical" : "Warning"}</span></td></tr>)}</tbody></table></div><p className="mt-2 text-[9px] text-slate-400 italic leading-relaxed">
                     * Officers with &gt;3 pending compliance issues are flagged for charge memo proceedings.
-                  </p></>}</div></div></div></div></div>;
+                  </p></>}</SectionCard></div></div></div>;
 };
 const DateRangeBar = ({ from, to, onChange, onPreset, loading }) => {
   const presets = [
@@ -347,52 +355,23 @@ const DateField = ({ label, value, min, max, onChange }) => (
   </label>
 );
 
-const SectionCard = ({
-  title,
-  badge,
-  children
-}) => <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col"><div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between"><h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-wider">{title}</h3>{badge !== undefined && <span className="bg-[#003366] text-white text-[10px] font-bold px-2 py-0.5 rounded-full min-w-[28px] text-center">{badge}</span>}</div><div className="px-3 py-3 flex-1 flex flex-col justify-center">{children}</div></div>;
 const HBar = ({ label, value, max, color, onClick, title }) => {
   const pct = value / max * 100;
   const clickable = typeof onClick === "function" && value > 0;
-  return <div
-    className={`flex items-center gap-2 text-[12px] ${clickable ? "cursor-pointer hover:bg-slate-50 -mx-2 px-2 py-0.5 rounded transition-colors" : ""}`}
-    onClick={clickable ? onClick : undefined}
-    title={title || (clickable ? `View memos: ${label}` : label)}
-  ><span
-    className="w-[120px] text-slate-700 font-semibold truncate flex-shrink-0"
-  >{label}</span><div className="flex-1 h-[18px] bg-gray-100 rounded overflow-hidden"><div
-    className="h-full rounded"
-    style={{ width: `${Math.max(pct, 4)}%`, backgroundColor: color }}
-  /></div><span className="text-slate-900 font-bold tabular-nums w-[32px] text-right flex-shrink-0">{value}</span></div>;
+  return (
+    <div
+      className={`flex items-center gap-2 text-[12px] ${clickable ? "cursor-pointer hover:bg-slate-50 -mx-2 px-2 py-0.5 rounded transition-colors" : ""}`}
+      onClick={clickable ? onClick : undefined}
+      title={title || (clickable ? `View memos: ${label}` : label)}
+    >
+      <span className="w-[120px] text-slate-700 font-semibold truncate flex-shrink-0">{label}</span>
+      <div className="flex-1 h-[18px] bg-gray-100 rounded overflow-hidden">
+        <div className="h-full rounded" style={{ width: `${Math.max(pct, 4)}%`, backgroundColor: color }} />
+      </div>
+      <span className="text-slate-900 font-bold tabular-nums w-[32px] text-right flex-shrink-0">{value}</span>
+    </div>
+  );
 };
-const EmptyState = () => <div className="py-6 text-center"><p className="text-[11px] text-slate-400 font-medium">No data available</p></div>;
-function rankPrefix(rank) {
-  if (!rank) return "";
-  const map = {
-    INSPECTOR: "Insp.",
-    CI: "Insp.",
-    SI: "SI",
-    WSI: "WSI",
-    PSI: "PSI",
-    ASI: "ASI",
-    HEAD_CONSTABLE: "HC",
-    CONSTABLE: "Const."
-  };
-  return map[rank] || rank;
-}
-function designationLabel(rank) {
-  if (!rank) return "-";
-  const map = {
-    INSPECTOR: "Inspector",
-    CI: "Inspector",
-    SI: "Sub-Inspector",
-    WSI: "Sub-Inspector",
-    PSI: "Sub-Inspector",
-    ASI: "Asst. Sub-Inspector",
-    HEAD_CONSTABLE: "Head Constable",
-    CONSTABLE: "Constable"
-  };
-  return map[rank] || rank;
-}
+
+const EmptyStateLocal = () => <div className="py-6 text-center"><p className="text-[11px] text-slate-400 font-medium">No data available</p></div>;
 export default Dashboard;

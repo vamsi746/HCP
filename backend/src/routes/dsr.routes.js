@@ -304,22 +304,9 @@ router.post('/upload', _auth.authenticate, _upload.upload.single('file'), async 
             }
           }
 
-          // Find SHO: first officer whose remarks include "admin" for this PS
-          // Same logic as mapping page: iterate all sectors, first admin match = SHO
-          if (sectors.length > 0) {
-            const allSOForSHO = await _models.SectorOfficer.find({
-              sectorId: { $in: sectors.map((s) => s._id) },
-              role: 'PRIMARY_SI',
-              isActive: true,
-            }).lean();
-            for (const so of allSOForSHO) {
-              const off = await _models.Officer.findById(so.officerId).select('remarks').lean();
-              const remarks = (_optionalChain([off, 'optionalAccess', _18 => _18.remarks]) || '').toLowerCase();
-              if (remarks.includes('admin')) {
-                matchedSHOId = so.officerId.toString();
-                break;
-              }
-            }
+          // Find SHO: use the explicit shoId from the PoliceStation model
+          if (ps && ps.shoId) {
+            matchedSHOId = ps.shoId.toString();
           }
 
           // Fallback: if no sector-specific match, try any sector SI for this PS
@@ -676,16 +663,9 @@ router.post('/:id/reparse', _auth.authenticate, _rbac.requireMinRank.call(void 0
             }
           }
         }
-        // SHO
-        if (sectors.length > 0) {
-          const allSO = await _models.SectorOfficer.find({ sectorId: { $in: sectors.map(s => s._id) }, role: 'PRIMARY_SI', isActive: true }).lean();
-          for (const so of allSO) {
-            const off = await _models.Officer.findById(so.officerId).select('remarks').lean();
-            if ((_optionalChain([off, 'optionalAccess', _34 => _34.remarks]) || '').toLowerCase().includes('admin')) {
-              matchedSHOId = so.officerId.toString();
-              break;
-            }
-          }
+        // SHO: use the explicit shoId from the PoliceStation model
+        if (ps && ps.shoId) {
+          matchedSHOId = ps.shoId.toString();
         }
       }
 

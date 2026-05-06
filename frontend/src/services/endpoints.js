@@ -54,7 +54,7 @@ export const complyMemo = (id, formData) => api.put(`/memos/${id}/comply`, formD
 export const updateCompliance = (id, formData) => api.patch(`/memos/${id}/compliance`, formData, { headers: { "Content-Type": "multipart/form-data" } });
 export const deleteComplianceDocument = (id) => api.delete(`/memos/${id}/compliance-document`);
 export const downloadComplianceDocument = (id) => api.get(`/memos/${id}/compliance-document`, { responseType: "blob" });
-export const getCaseOfficers = (psId) => api.get(`/memos/case-officers/${psId}`);
+export const getCaseOfficers = (psId, sector) => api.get(`/memos/case-officers/${psId}`, { params: { sector } });
 export const getZones = () => api.get("/zones");
 export const getHierarchy = () => api.get("/zones/hierarchy");
 export const getDashboard = () => api.get("/reports/dashboard");

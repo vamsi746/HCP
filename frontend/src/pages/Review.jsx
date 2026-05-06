@@ -454,7 +454,7 @@ const Review = () => {
     try {
       const psId = typeof memo.psId === "object" ? memo.psId._id : memo.psId;
       if (psId) {
-        const res = await getCaseOfficers(psId);
+        const res = await getCaseOfficers(psId, memo.sector);
         setOfficers(res.data.data);
       } else {
         setOfficers({ si: null, sho: null });
@@ -797,7 +797,7 @@ const Review = () => {
       ["Nature", memo.caseDetails?.natureOfCase || "\u2014"],
       ["Zone", memo.zone || "\u2014"],
       ["PS", memo.policeStation || "\u2014"],
-      ["Sector", memo.caseDetails?.sector || "\u2014"]
+      ["Sector", memo.sector || memo.caseDetails?.sector || "\u2014"]
     ]).map(([k, v]) => <tr key={k} className="border-b border-neutral-200 last:border-0"><td className="font-semibold py-1.5 pr-1 whitespace-nowrap align-top text-[#4A5568]" style={{ width: "60px" }}>{k}</td><td className="py-1.5 align-top text-[#A0AEC0]" style={{ width: "10px" }}>:</td><td className="py-1.5 pl-1.5 font-bold text-[#1C2334]">{v}</td></tr>)}</tbody></table></div><div className="flex-shrink-0 flex items-center border-t border-[#D9DEE4] w-full">{isCompliedTab ? <><button
       onClick={() => openDetail(memo)}
       className="flex-1 flex items-center justify-center gap-1.5 text-[11px] text-[#003366] font-bold uppercase tracking-wider px-2 py-2.5 hover:bg-[#EBF0F5] transition border-r border-[#D9DEE4]"

@@ -42,7 +42,7 @@ app.use(_compression2.default.call(void 0, ));
 app.use(_express2.default.json({ limit: '10mb' }));
 app.use(_express2.default.urlencoded({ extended: true }));
 app.use(_morgan2.default.call(void 0, 'combined', { stream: { write: (msg) => _logger.logger.info(msg.trim()) } }));
-app.use('/api', _rateLimiter.apiLimiter);
+// app.use('/api', _rateLimiter.apiLimiter);
 
 // Static uploads
 app.use('/uploads', _express2.default.static(_path2.default.join(__dirname, '..', 'uploads')));

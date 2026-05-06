@@ -33,7 +33,6 @@ var OfficerRank; (function (OfficerRank) {
 
 const officerSchema = new _mongoose.Schema(
   {
-    badgeNumber: { type: String, required: true, unique: true },
     name: { type: String, required: true },
     rank: { type: String, enum: Object.values(OfficerRank), required: true },
     email: { type: String, unique: true, sparse: true },
@@ -47,6 +46,11 @@ const officerSchema = new _mongoose.Schema(
     lastLogin: Date,
     failedLoginAttempts: { type: Number, default: 0 },
     lockedUntil: Date,
+    systemRole: {
+      type: String,
+      enum: ['ADMIN', 'COMMISSIONER', 'SHO', 'SI'],
+      default: 'SI'
+    }
   },
   { timestamps: true }
 );
@@ -54,7 +58,7 @@ const officerSchema = new _mongoose.Schema(
 officerSchema.index({ rank: 1 });
 officerSchema.index({ isActive: 1 });
 officerSchema.index({ rank: 1, isActive: 1 });
-officerSchema.index({ name: 'text', badgeNumber: 'text' });
+officerSchema.index({ name: 'text' });
 officerSchema.index({ rank: 1, name: 1 });
 
  const Officer = _mongoose2.default.model('Officer', officerSchema); exports.Officer = Officer;

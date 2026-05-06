@@ -98,15 +98,7 @@ const Mapping = () => {
     selectedZone.divisions.forEach((div) => {
       div.circles.forEach((circle) => {
         circle.stations.forEach((station) => {
-          let shoName = "\u2014";
-          station.sectors.forEach((sector) => {
-            sector.officers?.forEach((off) => {
-              const role = (off.remarks || off.role || "").toLowerCase();
-              if (role.includes("admin") && shoName === "\u2014") {
-                shoName = off.name;
-              }
-            });
-          });
+          const shoName = station.shoName || "\u2014";
           station.sectors.forEach((sector) => {
             if (sector.officers && sector.officers.length > 0) {
               sector.officers.forEach((off) => {
@@ -122,7 +114,7 @@ const Mapping = () => {
                   rank: off.rank || "SI",
                   phone: off.phone,
                   batch: off.batch || "",
-                  remarks: off.remarks || off.role || ""
+                  remarks: off.remarks || ""
                 });
               });
             }
@@ -162,7 +154,7 @@ const Mapping = () => {
         i + 1,
         `"${off.stationName}"`,
         `"${off.shoName}"`,
-        `"${off.remarks || off.sectorName}"`,
+        `"${off.sectorName}"`,
         `"${off.name}"`,
         off.rank,
         off.phone,
@@ -310,7 +302,7 @@ const Mapping = () => {
     return <tr key={off._id} className={`border-b border-slate-200 transition-colors hover:bg-blue-50/50 ${isHighlighted ? "bg-amber-50/50" : idx % 2 === 0 ? "bg-white" : "bg-slate-50/50"}`}><td className="px-3 py-2.5 text-slate-500 font-bold text-center">{idx + 1}</td><td className="px-3 py-2.5"><span className="font-bold text-slate-800">{off.stationName}</span></td><td className="px-3 py-2.5 text-slate-700">{off.shoName}</td><td className="px-3 py-2.5">{(() => {
       const r = (off.remarks || "").toLowerCase();
       const cls = r.includes("admin") ? "bg-amber-600 text-white" : r.includes("dsi") ? "bg-orange-600 text-white" : r.includes("maternity") || r.includes("sick") ? "bg-red-600 text-white" : r.includes("crime") || r.includes("general") ? "bg-purple-700 text-white" : "bg-blue-700 text-white";
-      return <span className={`inline-block px-2.5 py-0.5 text-[11px] font-bold ${cls}`}>{off.remarks || off.sectorName}</span>;
+      return <span className={`inline-block px-2.5 py-0.5 text-[11px] font-bold ${cls}`}>{off.sectorName}</span>;
     })()}</td><td className="px-3 py-2.5 font-bold text-slate-800">{off.name}</td><td className="px-3 py-2.5 text-center"><span className={`inline-block px-2.5 py-0.5 text-[11px] font-bold ${off.rank === "WSI" ? "bg-pink-700 text-white" : off.rank === "PSI" ? "bg-teal-700 text-white" : "bg-slate-600 text-white"}`}>{off.rank}</span></td><td className="px-3 py-2.5 text-slate-600 font-mono text-[12px]">{off.phone}</td><td className="px-3 py-2.5 text-slate-700 font-bold text-center">{off.batch || "\u2014"}</td><td className="px-3 py-2.5 text-center"><div className="flex items-center justify-center gap-1"><button onClick={() => startEdit(off)} className="p-1.5 text-slate-400 hover:text-blue-700 hover:bg-blue-50 transition-colors" title="Edit"><Pencil size={14} /></button><button onClick={() => {
       setDeleteConfirm(off._id);
       setEditingId(null);

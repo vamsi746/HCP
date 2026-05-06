@@ -31,11 +31,17 @@ const Dock = () => {
   const location = useLocation();
   const user = useSelector((s) => s.auth.user);
   const visibleItems = useMemo(() => {
-    if (user?.rank === "COMMISSIONER") {
-      return navItems.filter((i) => i.to === "/review");
+    // Admin and Commissioner see everything
+    if (user?.systemRole === "ADMIN" || user?.systemRole === "COMMISSIONER" || user?.rank === "COMMISSIONER") {
+      return navItems;
     }
+    // SHOs and SIs only see the Dashboard
+    if (user?.systemRole === "SHO" || user?.systemRole === "SI") {
+      return navItems.filter((i) => i.to === "/");
+    }
+    // Fallback for others
     return navItems;
-  }, [user?.rank]);
+  }, [user?.systemRole, user?.rank]);
   const { data: pendingData } = useQuery({
     queryKey: ["memos-pending-count"],
     queryFn: async () => {

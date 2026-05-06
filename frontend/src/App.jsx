@@ -24,11 +24,7 @@ const ProtectedRoute = ({ children }) => {
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
-const CommissionerGuard = ({ children }) => {
-  const user = useSelector((s) => s.auth.user);
-  if (user?.rank === "COMMISSIONER") return <Navigate to="/review" replace />;
-  return <>{children}</>;
-};
+
 const App = () => {
   const dispatch = useDispatch();
   useEffect(() => {
@@ -36,6 +32,6 @@ const App = () => {
   }, [dispatch]);
   return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route
     element={<ProtectedRoute><Layout /></ProtectedRoute>}
-  ><Route path="/" element={<CommissionerGuard><Dashboard /></CommissionerGuard>} /><Route path="/officers" element={<CommissionerGuard><Officers /></CommissionerGuard>} /><Route path="/officers/:id" element={<CommissionerGuard><OfficerDetail /></CommissionerGuard>} /><Route path="/officer-tracker" element={<CommissionerGuard><OfficerTracker /></CommissionerGuard>} /><Route path="/dsr" element={<CommissionerGuard><DSRList /></CommissionerGuard>} /><Route path="/dsr/upload" element={<CommissionerGuard><DSRUpload /></CommissionerGuard>} /><Route path="/dsr/:id" element={<CommissionerGuard><DSRDetail /></CommissionerGuard>} /><Route path="/memos" element={<CommissionerGuard><MemoList /></CommissionerGuard>} /><Route path="/memos/:id" element={<CommissionerGuard><MemoEditorPage /></CommissionerGuard>} /><Route path="/actions" element={<CommissionerGuard><Actions /></CommissionerGuard>} /><Route path="/reports" element={<CommissionerGuard><Reports /></CommissionerGuard>} /><Route path="/review" element={<Review />} /><Route path="/mapping" element={<CommissionerGuard><Mapping /></CommissionerGuard>} /><Route path="/gis" element={<CommissionerGuard><GIS /></CommissionerGuard>} /></Route></Routes></BrowserRouter>;
+  ><Route path="/" element={<Dashboard />} /><Route path="/officers" element={<Officers />} /><Route path="/officers/:id" element={<OfficerDetail />} /><Route path="/officer-tracker" element={<OfficerTracker />} /><Route path="/dsr" element={<DSRList />} /><Route path="/dsr/upload" element={<DSRUpload />} /><Route path="/dsr/:id" element={<DSRDetail />} /><Route path="/memos" element={<MemoList />} /><Route path="/memos/:id" element={<MemoEditorPage />} /><Route path="/actions" element={<Actions />} /><Route path="/reports" element={<Reports />} /><Route path="/review" element={<Review />} /><Route path="/mapping" element={<Mapping />} /><Route path="/gis" element={<GIS />} /></Route></Routes></BrowserRouter>;
 };
 export default App;

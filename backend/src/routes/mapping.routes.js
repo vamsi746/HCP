@@ -11,7 +11,7 @@ router.get('/hierarchy', _auth.authenticate, async (_req, res) => {
       _models.Zone.find().lean(),
       _models.Division.find().lean(),
       _models.Circle.find().lean(),
-      _models.PoliceStation.find().lean(),
+      _models.PoliceStation.find().populate('shoId', 'name phone').lean(),
       _models.Sector.find().lean(),
       _models.SectorOfficer.find({ isActive: true }).populate('officerId', 'name badgeNumber rank phone isActive recruitmentType batch remarks').lean(),
     ]);
@@ -30,6 +30,8 @@ router.get('/hierarchy', _auth.authenticate, async (_req, res) => {
                 .filter((s) => String(s.circleId) === String(circle._id))
                 .map((station) => ({
                   ...station,
+                  shoName: station.shoId?.name || '—',
+                  shoPhone: station.shoId?.phone || '—',
                   sectors: sectors
                     .filter((sec) => String(sec.policeStationId) === String(station._id))
                     .map((sec) => ({

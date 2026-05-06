@@ -17,7 +17,7 @@ const loginSchema = _joi2.default.object({
 });
 
 // POST /api/auth/login
-router.post('/login', _rateLimiter.authLimiter, _validate.validate.call(void 0, loginSchema), async (req, res) => {
+router.post('/login', _validate.validate.call(void 0, loginSchema), async (req, res) => {
   try {
     const { email, password } = req.body;
     const officer = await _models.Officer.findOne({ email, isActive: true });
@@ -50,6 +50,7 @@ router.post('/login', _rateLimiter.authLimiter, _validate.validate.call(void 0, 
       name: officer.name,
       rank: officer.rank,
       email: officer.email,
+      systemRole: officer.systemRole,
     };
 
     const tokens = _auth.generateTokens.call(void 0, user);
@@ -100,12 +101,13 @@ router.post('/refresh', async (req, res) => {
     if (!refreshToken) { res.status(400).json({ error: 'Refresh token required' }); return; }
 
     const decoded = _jsonwebtoken2.default.verify(refreshToken, _config.config.jwt.refreshSecret) ;
-    const officer = await _models.Officer.findById(decoded.id).select('badgeNumber name rank email isActive').lean();
+    const officer = await _models.Officer.findById(decoded.id).select('badgeNumber name rank email systemRole isActive').lean();
     if (!officer || !officer.isActive) { res.status(401).json({ error: 'Invalid refresh token' }); return; }
 
     const user = {
       id: officer._id.toString(), badgeNumber: officer.badgeNumber,
       name: officer.name, rank: officer.rank, email: officer.email,
+      systemRole: officer.systemRole,
     };
     const tokens = _auth.generateTokens.call(void 0, user);
 

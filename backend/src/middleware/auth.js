@@ -36,7 +36,7 @@ var _models = require('../models');
     }
 
     const decoded = _jsonwebtoken2.default.verify(token, _config.config.jwt.secret) ;
-    const officer = await _models.Officer.findById(decoded.id).select('badgeNumber name rank email isActive').lean();
+    const officer = await _models.Officer.findById(decoded.id).select('badgeNumber name rank email systemRole isActive').lean();
 
     if (!officer || !officer.isActive) {
       res.status(401).json({ error: 'Invalid or inactive account' });
@@ -49,6 +49,7 @@ var _models = require('../models');
       name: officer.name,
       rank: officer.rank,
       email: officer.email,
+      systemRole: officer.systemRole,
     };
 
     next();
@@ -63,7 +64,7 @@ var _models = require('../models');
 
  const generateTokens = (user) => {
   const accessToken = _jsonwebtoken2.default.sign(
-    { id: user.id, badgeNumber: user.badgeNumber, name: user.name, rank: user.rank, email: user.email },
+    { id: user.id, badgeNumber: user.badgeNumber, name: user.name, rank: user.rank, email: user.email, systemRole: user.systemRole },
     _config.config.jwt.secret,
     { expiresIn: _config.config.jwt.expiresIn } 
   );

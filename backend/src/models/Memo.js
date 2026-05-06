@@ -33,6 +33,7 @@ const memoSchema = new (0, _mongoose.Schema)(
     psId: { type: _mongoose.Schema.Types.ObjectId, ref: 'PoliceStation' },
     zone: String,
     zoneId: { type: _mongoose.Schema.Types.ObjectId, ref: 'Zone' },
+    sector: String,
     briefFacts: String,
 
     // Workflow status

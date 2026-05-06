@@ -9,6 +9,7 @@ const policeStationSchema = new (0, _mongoose.Schema)(
     lat: Number,
     lng: Number,
     phone: String,
+    shoId: { type: _mongoose.Schema.Types.ObjectId, ref: 'Officer' },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

@@ -174,7 +174,7 @@ function ensureMemoFooterGrouping(content) {
   });
 }
 
-function generateMemoHTML(caseData, psName, zoneName, divisionName, memoDate) {
+function generateMemoHTML(caseData, psName, zoneName, divisionName, memoDate, recipientName, recipientDesignation) {
   const crNo = normalizeWhitespace(caseData.crNo) || '___/____';
   const sections = normalizeWhitespace(caseData.sections) || '___';
   const memoDateDisplay = formatDateParts(memoDate, '-');
@@ -245,7 +245,7 @@ function generateMemoHTML(caseData, psName, zoneName, divisionName, memoDate) {
     coordinationDepartment: escapeHtml(coordinationDepartment),
     divisionLabel: escapeHtml(divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad'),
     zoneLabel: escapeHtml(zoneName ? `${zoneName} Zone, Hyderabad` : '________ Zone, Hyderabad'),
-    toBlock: buildToBlock(psName),
+    toBlock: buildToBlock(psName, recipientName, recipientDesignation),
   });
 }
 
@@ -316,8 +316,17 @@ router.post('/generate', _auth.authenticate, async (req, res) => {
     const subject = `Hyderabad City Police - Failure to prevent ${offenceTitle} - Explanation called for - Regarding.`;
     const reference = `Crime No. ${parsedCase.crNo || '___'} u/s ${parsedCase.sections || '___'} of ${psName} PS, dated ${formatDateString(parsedCase.dor, memoDate, '.')}.`;
 
+    // Determine initial recipient from DSR match
+    const initialRecipient = parsedCase.matchedOfficerId || parsedCase.matchedSHOId || null;
+    const recipientName = initialRecipient ? initialRecipient.name : '';
+    const recipientType = parsedCase.matchedOfficerId ? 'SI' : (parsedCase.matchedSHOId ? 'SHO' : '');
+    const recipientDesignation = parsedCase.matchedOfficerId 
+      ? (parsedCase.matchedOfficerId.rank === 'WSI' ? 'Woman Sub-Inspector of Police' : 'Sub-Inspector of Police')
+      : (parsedCase.matchedSHOId ? 'Inspector of Police' : '');
+    const recipientId = initialRecipient ? (initialRecipient._id || initialRecipient) : null;
+
     // Generate HTML content
-    const content = generateMemoHTML(parsedCase, psName, zoneName, divisionName, memoDate);
+    const content = generateMemoHTML(parsedCase, psName, zoneName, divisionName, memoDate, recipientName, recipientDesignation);
 
     // Create memo
     const memo = await _models.Memo.create({
@@ -333,10 +342,15 @@ router.post('/generate', _auth.authenticate, async (req, res) => {
       psId: typeof parsedCase.matchedPSId === 'object' ? parsedCase.matchedPSId._id : parsedCase.matchedPSId,
       zone: zoneName,
       zoneId: typeof parsedCase.matchedZoneId === 'object' ? parsedCase.matchedZoneId._id : parsedCase.matchedZoneId,
+      sector: parsedCase.sector || '',
       briefFacts: parsedCase.briefFacts,
       status: _models.MemoStatus.DRAFT,
       generatedBy: req.user.id,
       generatedAt: memoDate,
+      recipientId,
+      recipientName,
+      recipientDesignation,
+      recipientType,
       recipientPS: psName,
       copyTo: [
         { designation: 'ACP', name: '', unit: divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad' },
@@ -501,9 +515,11 @@ router.post('/generate-charge-memo', _auth.authenticate, async (req, res) => {
       HEAD_CONSTABLE: 'Head Constable',
       CONSTABLE: 'Constable',
     };
-    // If officer has 'admin' in remarks, they are SHO / Inspector of Police
-    const isAdmin = (officer.remarks || '').toLowerCase().includes('admin');
-    const officerDesignation = isAdmin ? 'Inspector of Police' : (designationMap[officer.rank] || 'Inspector of Police');
+    
+    // Check if officer is explicitly linked as SHO of their station
+    const stationForSHO = await _models.PoliceStation.findOne({ shoId: officer._id }).lean();
+    const isSHO = !!stationForSHO;
+    const officerDesignation = isSHO ? 'Inspector of Police' : (designationMap[officer.rank] || 'Inspector of Police');
 
     // 6. Generate HTML
     const memoDate = new Date();
@@ -528,7 +544,7 @@ router.post('/generate-charge-memo', _auth.authenticate, async (req, res) => {
       recipientId: officer._id,
       recipientName: officer.name,
       recipientDesignation: officerDesignation,
-      recipientType: isAdmin ? 'SHO' : 'SI',
+      recipientType: isSHO ? 'SHO' : 'SI',
       recipientPS: psName,
       copyTo: [
         { designation: 'ACP', name: '', unit: divisionName ? `${divisionName} Division, Hyderabad` : '________ Division, Hyderabad' },
@@ -547,37 +563,121 @@ router.post('/generate-charge-memo', _auth.authenticate, async (req, res) => {
 
 router.get('/case-officers/:psId', _auth.authenticate, async (req, res) => {
   try {
+    const { sector } = req.query;
+    console.log(`[DEBUG] getCaseOfficers psId=${req.params.psId} sector="${sector}"`);
+
     const sectors = await _Sector.Sector.find({ policeStationId: req.params.psId }).lean();
     if (sectors.length === 0) {
+      console.log(`[DEBUG] No sectors found for PS ${req.params.psId}`);
       res.json({ data: { si: null, sho: null } });
       return;
     }
 
-    const sectorOfficers = await _models.SectorOfficer.find({
-      sectorId: { $in: sectors.map((s) => s._id) },
-      role: 'PRIMARY_SI',
-      isActive: true,
-    }).lean();
-
-    let sho = null;
-    let si = null;
-
-    for (const so of sectorOfficers) {
-      const off = await _models.Officer.findById(so.officerId).select('name badgeNumber rank phone remarks').lean();
-      if (!off) continue;
-      const remarks = (off.remarks || '').toLowerCase();
-      if (remarks.includes('admin') && !sho) {
-        sho = off;
-      } else if (!si) {
-        const hasDigit = /\d/.test(remarks);
-        const isPureNonSector = !hasDigit && (remarks.includes('admin') || remarks.includes('dsi'));
-        if (!isPureNonSector) si = off;
+    // Robust sector matching
+    let matchedSectorId = null;
+    if (sector) {
+      const cleanInput = String(sector).replace(/\s*Sector\s*/i, '').trim().toLowerCase();
+      const sMatch = sectors.find(s => {
+        const dbName = s.name.toLowerCase();
+        const dbClean = dbName.replace(/\s*Sector\s*/i, '').trim();
+        return dbClean === cleanInput || dbName === cleanInput || dbName.includes(cleanInput);
+      });
+      if (sMatch) {
+        matchedSectorId = sMatch._id;
+        console.log(`[DEBUG] Matched sector "${sector}" to DB sector "${sMatch.name}" (${sMatch._id})`);
+      } else {
+        console.log(`[DEBUG] Could not match sector "${sector}" in sectors:`, sectors.map(s => s.name));
       }
+    }
+
+    const soFilter = {
+      role: 'PRIMARY_SI',
+      isActive: true
+    };
+
+    if (matchedSectorId) {
+      soFilter.sectorId = matchedSectorId;
+    } else {
+      soFilter.sectorId = { $in: sectors.map((s) => s._id) };
+    }
+
+    console.log(`[DEBUG] Querying SectorOfficer with filter: ${JSON.stringify(soFilter)}`);
+    const sectorOfficers = await _models.SectorOfficer.find(soFilter).lean();
+    console.log(`[DEBUG] Found ${sectorOfficers.length} primary SIs.`);
+    
+    if (sectorOfficers.length > 0) {
+      console.log(`[DEBUG] First SI ID: ${sectorOfficers[0].officerId}`);
+    }
+
+    const ps = await _models.PoliceStation.findById(req.params.psId).populate('shoId').lean();
+    if (!ps) {
+      console.log(`[DEBUG] Police station ${req.params.psId} NOT FOUND in DB`);
+      res.status(404).json({ error: 'Police station not found' });
+      return;
+    }
+
+    const sho = _optionalChain([ps, 'access', _ => _.shoId, 'optionalAccess', _2 => ({
+      _id: _2._id,
+      name: _2.name,
+      badgeNumber: _2.badgeNumber,
+      rank: _2.rank,
+      phone: _2.phone,
+      remarks: _2.remarks
+    })]) || null;
+
+    let si = null;
+    if (sectorOfficers.length > 0) {
+      // If we have multiple (unlikely if matchedSectorId is set), we'll find the best one
+      let bestSO = sectorOfficers[0];
+      
+      // If we have multiple but no matchedSectorId, we might want to prioritize based on something?
+      // But usually it should be 1-to-1.
+      
+      const off = await _models.Officer.findById(bestSO.officerId).select('name badgeNumber rank phone remarks').lean();
+      si = off;
+      console.log(`[DEBUG] Returning SI: ${si ? si.name : 'None'}`);
+    } else {
+      console.log(`[DEBUG] No primary SI found`);
     }
 
     res.json({ data: { si, sho } });
   } catch (e) {
+    console.error('[DEBUG] getCaseOfficers error:', e);
     res.status(500).json({ error: 'Failed to get officers' });
+  }
+});
+
+// ── GET /api/memos/my-memos — List memos for the logged-in officer ──────────
+
+router.get('/my-memos', _auth.authenticate, async (req, res) => {
+  try {
+    const { page = '1', limit = '20', status } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const filter = {
+      recipientId: req.user.id,
+      status: { $in: ['APPROVED', 'SENT'] },
+    };
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const [memos, total] = await Promise.all([
+      _models.Memo.find(filter)
+        .populate('generatedBy', 'name badgeNumber rank')
+        .populate('approvedBy', 'name badgeNumber rank')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      _models.Memo.countDocuments(filter),
+    ]);
+
+    res.json({ data: memos, pagination: { page: parseInt(page), limit: parseInt(limit), total } });
+  } catch (err) {
+    console.error('[MEMO] My-memos error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch your memos' });
   }
 });
 
@@ -603,14 +703,13 @@ router.get('/', _auth.authenticate, async (req, res) => {
       const statuses = (status ).split(',');
       filter.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
     }
-    if (dsrId) filter.dsrId = dsrId;
-    if (zoneId) filter.zoneId = zoneId;
-    if (zone && !zoneId) {
-      // Match by Memo.zone (string, no " Zone" suffix)
+    if (dsrId && dsrId !== '') filter.dsrId = dsrId;
+    if (zoneId && zoneId !== '') filter.zoneId = zoneId;
+    if (zone && zone !== '' && !zoneId) {
       const cleanZone = String(zone).replace(/\s*Zone\s*$/i, '').trim();
       filter.zone = new RegExp(`^${cleanZone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
     }
-    if (psId) filter.psId = psId;
+    if (psId && psId !== '') filter.psId = psId;
     if (recipientType) {
       if (recipientType === 'UNASSIGNED') {
         filter.$or = [
@@ -675,6 +774,7 @@ router.get('/', _auth.authenticate, async (req, res) => {
         .populate('reviewedBy', 'name badgeNumber rank')
         .populate('recipientId', 'name badgeNumber rank phone')
         .populate('compliedBy', 'name badgeNumber rank')
+        .populate('psId', 'name code')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(parseInt(limit ))
@@ -742,6 +842,7 @@ router.get('/counts', _auth.authenticate, async (req, res) => {
       filter.zone = new RegExp(`^${cleanZone.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
     }
     if (psId) filter.psId = new _mongoose2.default.Types.ObjectId(psId );
+    if (sector) filter.sector = sector;
     if (recipientType) {
       if (recipientType === 'UNASSIGNED') {
         filter.$or = [
