@@ -250,56 +250,37 @@ router.post('/upload', _auth.authenticate, _upload.upload.single('file'), async 
             }
           }
 
-          // Find the specific sector from the parsed sector name (e.g. "Sector 1")
+          // Find the specific sector from the parsed sector name
           const sectors = await _models.Sector.find({ policeStationId: matchedPSId }).lean();
           if (sectors.length > 0 && c.sector) {
-            // Match by sector name/number
-            const sectorNum = _optionalChain([c, 'access', _8 => _8.sector, 'access', _9 => _9.match, 'call', _10 => _10(/\d+/), 'optionalAccess', _11 => _11[0]]);
-            if (sectorNum) {
-              const matched = sectors.find(s => {
-                const dbNum = _optionalChain([s, 'access', _12 => _12.name, 'access', _13 => _13.match, 'call', _14 => _14(/\d+/), 'optionalAccess', _15 => _15[0]]);
-                return dbNum === sectorNum;
-              });
-              if (matched) {
-                matchedSectorId = matched._id.toString();
-                // Find the best SI for this sector:
-                // 1st priority: officer whose remarks mention this sector number
-                // 2nd priority: any officer not purely admin/dsi/non-sector
-                // 3rd priority: anyone
-                const sectorOfficers = await _models.SectorOfficer.find({
-                  sectorId: matched._id,
-                  role: 'PRIMARY_SI',
-                  isActive: true,
-                }).lean();
+            const cleanInput = String(c.sector).replace(/\s*Sector\s*/i, '').trim().toLowerCase();
+            
+            // Robust matching:
+            // 1. Try exact match (after cleaning)
+            // 2. Try matching digits (if any)
+            // 3. Try matching Roman numerals (I, II, III, IV)
+            const romanMap = { 'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5' };
+            const inputNum = cleanInput.match(/\d+/) ? cleanInput.match(/\d+/)[0] : romanMap[cleanInput];
 
-                // 1st: officer whose remarks explicitly mention "Sector N" for the target sector
-                for (const so of sectorOfficers) {
-                  const off = await _models.Officer.findById(so.officerId).select('remarks').lean();
-                  const remarks = (_optionalChain([off, 'optionalAccess', _16 => _16.remarks]) || '');
-                  // Check if remarks contain "Sector N" or "Sec N" or "sector N"
-                  const mentionsSector = new RegExp(`(?:sec(?:tor)?)[\\s\\-–]*${sectorNum}\\b`, 'i').test(remarks);
-                  if (mentionsSector) {
-                    matchedOfficerId = so.officerId.toString();
-                    break;
-                  }
-                }
-                // 2nd: skip pure admin/dsi/non-sector roles (no digit in remarks)
-                if (!matchedOfficerId) {
-                  for (const so of sectorOfficers) {
-                    const off = await _models.Officer.findById(so.officerId).select('remarks').lean();
-                    const remarks = (_optionalChain([off, 'optionalAccess', _17 => _17.remarks]) || '').toLowerCase();
-                    const hasDigit = /\d/.test(remarks);
-                    const isPureNonSector = !hasDigit && (remarks.includes('admin') || remarks.includes('dsi') || remarks.includes('crime') || remarks.includes('general') || remarks.includes('maternity'));
-                    if (!isPureNonSector) {
-                      matchedOfficerId = so.officerId.toString();
-                      break;
-                    }
-                  }
-                }
-                // 3rd: anyone
-                if (!matchedOfficerId && sectorOfficers.length > 0) {
-                  matchedOfficerId = sectorOfficers[0].officerId.toString();
-                }
+            const matched = sectors.find(s => {
+              const dbName = s.name.toLowerCase();
+              const dbClean = dbName.replace(/\s*Sector\s*/i, '').trim();
+              const dbNum = dbClean.match(/\d+/) ? dbClean.match(/\d+/)[0] : romanMap[dbClean];
+              
+              return dbClean === cleanInput || (inputNum && dbNum === inputNum);
+            });
+
+            if (matched) {
+              matchedSectorId = matched._id.toString();
+              const sectorOfficers = await _models.SectorOfficer.find({
+                sectorId: matched._id,
+                isActive: true,
+              }).lean();
+
+              if (sectorOfficers.length > 0) {
+                // Prioritize PRIMARY_SI if multiple exist, else take any
+                const primary = sectorOfficers.find(so => so.role === 'PRIMARY_SI');
+                matchedOfficerId = primary ? primary.officerId.toString() : sectorOfficers[0].officerId.toString();
               }
             }
           }
@@ -644,22 +625,23 @@ router.post('/:id/reparse', _auth.authenticate, _rbac.requireMinRank.call(void 0
         }
         const sectors = await _models.Sector.find({ policeStationId: matchedPSId }).lean();
         if (sectors.length > 0 && c.sector) {
-          const sectorNum = _optionalChain([c, 'access', _25 => _25.sector, 'access', _26 => _26.match, 'call', _27 => _27(/\d+/), 'optionalAccess', _28 => _28[0]]);
-          if (sectorNum) {
-            const matched = sectors.find(s => _optionalChain([s, 'access', _29 => _29.name, 'access', _30 => _30.match, 'call', _31 => _31(/\d+/), 'optionalAccess', _32 => _32[0]]) === sectorNum);
-            if (matched) {
-              matchedSectorId = matched._id.toString();
-              const sectorOfficers = await _models.SectorOfficer.find({ sectorId: matched._id, role: 'PRIMARY_SI', isActive: true }).lean();
-              for (const so of sectorOfficers) {
-                const off = await _models.Officer.findById(so.officerId).select('remarks').lean();
-                if (new RegExp(`(?:sec(?:tor)?)[\\s\\-–]*${sectorNum}\\b`, 'i').test(_optionalChain([off, 'optionalAccess', _33 => _33.remarks]) || '')) {
-                  matchedOfficerId = so.officerId.toString();
-                  break;
-                }
-              }
-              if (!matchedOfficerId && sectorOfficers.length > 0) {
-                matchedOfficerId = sectorOfficers[0].officerId.toString();
-              }
+          const cleanInput = String(c.sector).replace(/\s*Sector\s*/i, '').trim().toLowerCase();
+          const romanMap = { 'i': '1', 'ii': '2', 'iii': '3', 'iv': '4', 'v': '5' };
+          const inputNum = cleanInput.match(/\d+/) ? cleanInput.match(/\d+/)[0] : romanMap[cleanInput];
+
+          const matched = sectors.find(s => {
+            const dbName = s.name.toLowerCase();
+            const dbClean = dbName.replace(/\s*Sector\s*/i, '').trim();
+            const dbNum = dbClean.match(/\d+/) ? dbClean.match(/\d+/)[0] : romanMap[dbClean];
+            return dbClean === cleanInput || (inputNum && dbNum === inputNum);
+          });
+
+          if (matched) {
+            matchedSectorId = matched._id.toString();
+            const sectorOfficers = await _models.SectorOfficer.find({ sectorId: matched._id, isActive: true }).lean();
+            if (sectorOfficers.length > 0) {
+              const primary = sectorOfficers.find(so => so.role === 'PRIMARY_SI');
+              matchedOfficerId = primary ? primary.officerId.toString() : sectorOfficers[0].officerId.toString();
             }
           }
         }

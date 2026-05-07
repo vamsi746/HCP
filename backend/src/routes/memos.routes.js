@@ -127,10 +127,10 @@ function buildToBlock(psName, recipientName, recipientDesignation) {
   const safePs = escapeHtml(normalizeWhitespace(psName) || '________');
   if (recipientName) {
     const safeName = escapeHtml(normalizeWhitespace(recipientName));
-    const safeDesignation = escapeHtml(normalizeWhitespace(recipientDesignation) || 'Inspector of Police');
-    return `<p>To</p>\n<p>Sri. ${safeName}, ${safeDesignation},</p>\n<p>${safePs} P.S, Hyderabad.</p>\n<p>&nbsp;</p>`;
+    const safeDesignation = escapeHtml(normalizeWhitespace(recipientDesignation) || 'Sub-Inspector of Police');
+    return `<p>To</p>\n<p>Sri. ${safeName}, ${safeDesignation},</p>\n<p>${safePs} P.S, Hyderabad.</p>`;
   }
-  return `<p>To</p>\n<p>The Inspector of Police/SHO,</p>\n<p>${safePs} P.S, Hyderabad.</p>\n<p>&nbsp;</p>`;
+  return `<p>To</p>\n<p>The Inspector of Police/SHO,</p>\n<p>${safePs} P.S, Hyderabad.</p>`;
 }
 
 function renderMemoTemplate(template, values) {
@@ -192,42 +192,70 @@ function generateMemoHTML(caseData, psName, zoneName, divisionName, memoDate, re
     ? 'Food Safety and other concerned departments'
     : 'other concerned departments';
 
-  const template = `<p style="text-align: center"><strong>GOVERNMENT OF TELANGANA</strong></p>
-<p style="text-align: center"><strong>POLICE DEPARTMENT</strong></p>
-<p>&nbsp;</p>
-<p style="text-align: right">Office of the,</p>
-<p style="text-align: right">Commissioner of Police,</p>
-<p style="text-align: right">Hyderabad City</p>
-<p><span style="display:inline-block;width:60%;vertical-align:top">No. {{memoNumber}}</span><span style="display:inline-block;width:39%;text-align:right;vertical-align:top">Dated: {{memoDate}}</span></p>
-<p style="text-align: center"><strong><u>MEMO</u></strong></p>
-<p><strong>Sub:</strong> Hyderabad City Police - Failure to prevent {{offenceTitle}} - Explanation called for - Regarding.</p>
-<p><strong>Ref:</strong> Crime No. {{crNo}} u/s {{sections}} of {{psName}} PS, dated {{refDate}}.</p>
-<p style="text-align: center">* * * * *</p>
-<p style="text-align: justify">A case has been reported vide Cr.No.{{crNo}}, which falls under in your PS limits pertaining to {{offenceDescription}}. {{publicSafetySentence}}</p>
-<p style="text-align: justify">The following certain instructions are issued for strict compliance:</p>
-<ol style="margin:0 0 0 26px;padding:0">
-  <li>Develop a reliable informer network to gather information about {{offenceActivity}} in your jurisdiction.</li>
-  <li>Maintain a close watch on suspected manufacturing units, storage places, warehouses, and any suspicious locations.</li>
-  <li>Conduct regular surprise inspections and raids on suspected illegal units.</li>
-  <li>Coordinate actively with {{coordinationDepartment}} for information and action.</li>
-  <li>Keep continuous surveillance on habitual offenders and known persons involved in {{offenceActivity}}.</li>
-  <li>Take preventive action against suspects under relevant legal provisions.</li>
-  <li>Ensure proper supervision of Patrol cars and Blue Colts staff and responsibility in detecting such offences.</li>
+  const template = `<div style="text-align: center; font-weight: bold; margin-bottom: 20px;">
+  <p style="margin: 0; text-transform: uppercase;">GOVERNMENT OF TELANGANA</p>
+  <p style="margin: 0; text-transform: uppercase;">POLICE DEPARTMENT</p>
+</div>
+
+<div style="text-align: right; margin-bottom: 20px; line-height: 1.2;">
+  <p style="margin: 0;">Office of the,</p>
+  <p style="margin: 0;">Commissioner of Police,</p>
+  <p style="margin: 0;">Hyderabad City</p>
+</div>
+
+<div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+  <span>No. ________________</span>
+  <span>Dated: {{memoDate}}</span>
+</div>
+
+<div style="text-align: center; font-weight: bold; margin-bottom: 20px;">
+  <p style="margin: 0; text-decoration: underline;">MEMO</p>
+</div>
+
+<div style="text-align: justify; margin-bottom: 15px;">
+  <p style="margin: 0;"><strong>Sub:</strong> Hyderabad City Police - Failure to prevent {{offenceTitle}} - Explanation called for - Regarding.</p>
+</div>
+
+<div style="text-align: justify; margin-bottom: 15px;">
+  <p style="margin: 0;"><strong>Ref:</strong> Crime No. {{crNo}} u/s {{sections}} of {{psName}} PS, dated {{refDate}}.</p>
+</div>
+
+<p style="text-align: center; margin-bottom: 15px;">*****</p>
+
+<p style="text-align: justify; margin-bottom: 15px;">A case has been reported vide Cr.No.{{crNo}}, which falls under in your PS limits pertaining to {{offenceDescription}}. {{publicSafetySentence}}</p>
+
+<p style="text-align: justify; margin-bottom: 10px;">The following certain instructions are issued for strict compliance:</p>
+
+<ol style="margin: 0 0 15px 40px; padding: 0;">
+  <li style="margin-bottom: 8px;">Develop a reliable informer network to gather information about {{offenceActivity}} in your jurisdiction.</li>
+  <li style="margin-bottom: 8px;">Maintain a close watch on suspected manufacturing units, storage places, warehouses, and any suspicious locations.</li>
+  <li style="margin-bottom: 8px;">Conduct regular surprise inspections and raids on suspected illegal units.</li>
+  <li style="margin-bottom: 8px;">Coordinate actively with {{coordinationDepartment}} for information and action.</li>
+  <li style="margin-bottom: 8px;">Keep continuous surveillance on habitual offenders and known persons involved in {{offenceActivity}}.</li>
+  <li style="margin-bottom: 8px;">Take preventive action against suspects under relevant legal provisions.</li>
+  <li style="margin-bottom: 8px;">Ensure proper supervision of Patrol cars and Blue Colts staff and responsibility in detecting such offences.</li>
 </ol>
-<p style="text-align: justify">It is observed that, being a Station House Officer there was failure to detect and prevent the illegal activity at an earlier stage, which shows a lack of proper observance, intelligence gathering and supervisory control.</p>
-<p style="text-align: justify">Therefore, you are hereby instructed to submit your explanation for the above lapse within three (3) days from the date of receipt of this memo. Failing which, it will be presumed that you have no explanation to offer and appropriate disciplinary action will be initiated against you.</p>
+
+<p style="text-align: justify; margin-bottom: 15px;">It is observed that, being a Station House Officer there was failure to detect and prevent the illegal activity at an earlier stage, which shows a lack of proper observance, intelligence gathering and supervisory control.</p>
+
+<p style="text-align: justify; margin-bottom: 40px;">Therefore, you are hereby instructed to submit your explanation for the above lapse within three (3) days from the date of receipt of this memo. Failing which, it will be presumed that you have no explanation to offer and appropriate disciplinary action will be initiated against you.</p>
+
 <div class="memo-footer-block">
-  <p>&nbsp;</p>
   <div class="memo-signature-block">
-    <p style="text-align: right">Commissioner of Police,</p>
-    <p style="text-align: right">Hyderabad City</p>
+    <p style="text-align: right; margin: 0;">Commissioner of Police,</p>
+    <p style="text-align: right; margin: 0;">Hyderabad City</p>
   </div>
-  <p>&nbsp;</p>
+  
+  <div class="memo-page-break">
+    <div class="page-break-line"></div>
+    <div class="page-number">Page 2</div>
+  </div>
+
   <div class="memo-dispatch-block">
     {{toBlock}}
-    <p>Copy:</p>
-    <p>1. The ACP, {{divisionLabel}} for information and necessary action.</p>
-    <p>2. The DCP, {{zoneLabel}} for information and necessary action.</p>
+    <p style="margin-top: 20px;">Copy:</p>
+    <p style="margin: 2px 0;">1. The ACP, {{divisionLabel}} for information and necessary action.</p>
+    <p style="margin: 2px 0;">2. The DCP, {{zoneLabel}} for information and necessary action.</p>
   </div>
 </div>`;
 
@@ -597,6 +625,7 @@ router.get('/case-officers/:psId', _auth.authenticate, async (req, res) => {
 
     if (matchedSectorId) {
       soFilter.sectorId = matchedSectorId;
+      delete soFilter.role; // Don't restrict to PRIMARY_SI if we have a specific sector
     } else {
       soFilter.sectorId = { $in: sectors.map((s) => s._id) };
     }
