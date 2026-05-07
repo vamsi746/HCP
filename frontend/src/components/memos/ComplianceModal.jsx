@@ -217,14 +217,15 @@ const ComplianceModal = ({ memo, onClose, onSuccess, isOfficer = false, viewOnly
         {/* Body */}
         <div className="flex-1 flex overflow-hidden min-h-0">
           {/* Memo preview — A4 width */}
-          <div className="flex-1 bg-slate-100 p-6 overflow-auto border-r border-slate-300">
+          <div className="flex-1 bg-neutral-200 p-8 overflow-auto border-r border-slate-300 scrollbar-thin">
             <div
-              className="bg-white shadow-sm mx-auto border border-slate-300"
+              className="bg-white shadow-2xl mx-auto border border-slate-300 mb-8"
               style={{
                 width: "210mm",
                 minHeight: "297mm",
-                padding: "20mm 18mm",
-                boxSizing: "border-box"
+                padding: "25mm 20mm",
+                boxSizing: "border-box",
+                position: "relative"
               }}
             >
               <div

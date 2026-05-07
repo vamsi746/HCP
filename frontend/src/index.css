@@ -351,3 +351,90 @@ body {
 }
 .tiptap sup { font-size: 0.75em; vertical-align: super; }
 .tiptap sub { font-size: 0.75em; vertical-align: sub; }
+
+/* ── Memo Preview Styles ── */
+.memo-preview-content {
+  font-variant-numeric: tabular-nums;
+  font-family: 'Times New Roman', Times, serif !important;
+  color: #000 !important;
+}
+
+.memo-preview-content p {
+  margin-bottom: 0.8em;
+  text-align: justify;
+}
+
+.memo-preview-content .memo-footer-block {
+  margin-top: 4rem;
+  width: 100%;
+}
+
+.memo-preview-content .memo-signature-block {
+  margin-left: auto;
+  width: 100%;
+  text-align: right;
+  margin-bottom: 4rem;
+}
+
+.memo-preview-content .memo-signature-block p {
+  margin: 0 !important;
+  text-align: right !important;
+}
+
+.memo-preview-content .memo-page-break {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 4rem 0;
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: 'Inter', sans-serif;
+}
+
+.memo-preview-content .page-break-line {
+  position: absolute;
+  left: -20mm;
+  right: -18mm;
+  border-top: 1px dashed #cbd5e1;
+  z-index: 0;
+}
+
+.memo-preview-content .page-number {
+  background: white;
+  padding: 0 1rem;
+  z-index: 1;
+  position: relative;
+}
+
+.memo-preview-content .memo-dispatch-block {
+  margin-top: 2rem;
+  text-align: left;
+}
+
+.memo-preview-content .memo-dispatch-block p {
+  margin: 0.1em 0 !important;
+  text-align: left !important;
+}
+
+.memo-preview-content ol {
+  margin-bottom: 1.2em;
+  padding-left: 2.5rem !important;
+  list-style-type: decimal !important;
+}
+
+.memo-preview-content ul {
+  margin-bottom: 1.2em;
+  padding-left: 2.5rem !important;
+  list-style-type: disc !important;
+}
+
+.memo-preview-content li {
+  margin-bottom: 0.4em;
+  display: list-item !important;
+}
+
+/* Ensure inline-blocks for No. and Dated work correctly */
+.memo-preview-content span[style*="inline-block"] {
+  display: inline-block !important;
+}
