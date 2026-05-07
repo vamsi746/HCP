@@ -19,13 +19,22 @@ const Login = () => {
   };
   return <div className="min-h-screen flex">{
     /* Left panel — branding */
-  }<div className="hidden lg:flex lg:w-[55%] bg-[#003366] relative flex-col items-center justify-center px-12">{
+  }<div className="hidden lg:flex lg:w-[55%] bg-[#003366] relative flex-col items-center justify-center px-12 overflow-hidden isolate"><video
+    className="absolute inset-0 w-full h-full object-cover -z-20 motion-reduce:hidden"
+    src="/login-bg.mp4"
+    autoPlay
+    loop
+    muted
+    playsInline
+    preload="auto"
+    aria-hidden="true"
+  /><div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#003366]/85 via-[#003366]/70 to-[#001a33]/90" aria-hidden="true" />{
     /* Diagonal accent */
-  }<div className="absolute inset-0 overflow-hidden"><div className="absolute -right-32 top-0 bottom-0 w-64 bg-[#002244] skew-x-[-6deg]" /><div className="absolute bottom-0 left-0 right-0 h-1 bg-[#B8860B]" /></div><div className="relative z-10 flex flex-col items-center text-center"><img
+  }<div className="absolute inset-0 overflow-hidden pointer-events-none"><div className="absolute -right-32 top-0 bottom-0 w-64 bg-[#002244]/60 skew-x-[-6deg]" /><div className="absolute bottom-0 left-0 right-0 h-1 bg-[#B8860B]" /></div><div className="relative z-10 flex flex-col items-center text-center"><img
     src={policeLogo}
     alt="Hyderabad City Police"
-    className="w-32 h-32 rounded-full border-[5px] border-[#B8860B] shadow-2xl object-cover"
-  /><h1 className="text-3xl font-extrabold text-white mt-6 tracking-tight">SHIELD</h1><div className="w-12 h-1 bg-[#B8860B] rounded-full mt-3 mb-3" /><p className="text-lg text-blue-200 font-medium">Hyderabad City Police</p></div><p className="absolute bottom-5 text-blue-300/30 text-xs z-10">
+    className="w-32 h-32 rounded-full shadow-2xl object-cover"
+  /><h1 className="text-3xl font-extrabold text-white mt-6 tracking-tight">Hyderabad City Police</h1><div className="w-12 h-1 bg-[#B8860B] rounded-full mt-3 mb-3" /></div><p className="absolute bottom-5 text-blue-300/30 text-xs z-10">
           © {(/* @__PURE__ */ new Date()).getFullYear()} Hyderabad City Police
         </p></div>{
     /* Right panel — form */
@@ -34,10 +43,10 @@ const Login = () => {
   }<div className="flex flex-col items-center mb-8 lg:hidden"><img
     src={policeLogo}
     alt="Hyderabad City Police"
-    className="w-20 h-20 rounded-full border-4 border-[#B8860B] shadow-lg object-cover"
+    className="w-20 h-20 rounded-full shadow-lg object-cover"
   /><h1 className="text-lg font-bold text-[#003366] mt-3">SHIELD — HCP</h1></div>{
     /* Heading */
-  }<div className="mb-8"><h2 className="text-2xl font-bold text-slate-800">Welcome back</h2><p className="text-sm text-slate-500 mt-1">Enter your credentials to continue</p></div>{error && <div className="bg-red-50 text-red-600 px-4 py-3 mb-6 text-sm rounded-lg border border-red-200 flex items-center gap-2"><svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>{error}</div>}<form onSubmit={handleSubmit} className="space-y-5"><div><label className="block text-sm font-medium text-slate-600 mb-1.5">Email</label><input
+}<div className="mb-8"><h2 className="text-2xl font-bold text-slate-800">Enter your credentials to continue</h2></div>{error && <div className="bg-red-50 text-red-600 px-4 py-3 mb-6 text-sm rounded-lg border border-red-200 flex items-center gap-2"><svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" /></svg>{error}</div>}<form onSubmit={handleSubmit} className="space-y-5"><div><label className="block text-sm font-medium text-slate-600 mb-1.5">Email</label><input
     type="email"
     value={email}
     onChange={(e) => setEmail(e.target.value)}
